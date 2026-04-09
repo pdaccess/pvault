@@ -15,7 +15,11 @@ import (
 
 // --- Secret Operations ---
 
-func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, plaintext string) error {
+func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, plaintext string, defaultCapabilities domain.Capabilities) error {
+	if err := defaultCapabilities.Validate(); err != nil {
+		return fmt.Errorf("invalid capabilities: %w", err)
+	}
+
 	// 1. Get Kv via Master Wrap.
 	//    The vault must be created via CreateVault before secrets can be stored.
 	master, err := s.repo.GetMembership(ctx, callerID, vaultID)
@@ -55,38 +59,58 @@ func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uu
 	storedWrappedDEK := append(dekNonce, wrappedDEK...) //nolint:gocritic
 
 	secret := &domain.SecretValue{
-		ID:         secretID,
-		VaultID:    vaultID,
-		Ciphertext: ciphertext,
-		WrappedDEK: storedWrappedDEK,
-		Nonce:      nonce, // nonce for the plaintext ciphertext
-		Version:    1,
-		UpdatedAt:  time.Now(),
+		ID:            secretID,
+		VaultID:       vaultID,
+		CreatorUserID: callerID,
+		Ciphertext:    ciphertext,
+		WrappedDEK:    storedWrappedDEK,
+		Nonce:         nonce,
+		Version:       1,
+		UpdatedAt:     time.Now(),
 	}
 
 	if err := s.repo.SaveSecret(ctx, secret); err != nil {
 		return err
 	}
 
-	// 5. Record audit entry for secret protection.
+	// 5. Grant default capabilities to the caller
+	if len(defaultCapabilities) == 0 {
+		defaultCapabilities = domain.Capabilities{domain.CapSee, domain.CapConnect}
+	}
+	if err := s.repo.SaveUserSecretCapabilities(ctx, &domain.UserSecretCapabilities{
+		UserID:       callerID,
+		SecretID:     secretID,
+		Capabilities: defaultCapabilities,
+		UpdatedAt:    time.Now(),
+	}); err != nil {
+		return err
+	}
+
+	// 6. Record audit entry for secret protection.
 	return s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
 		CorrelationID: vaultID,
-		EventType:     "protect_secret",
+		EventType:     domain.EventTypeProtectSecret,
 		ActorID:       secretID,
 		ActionStatus:  "success",
-		Payload: map[string]any{
+		Payload: domain.AuditPayload{
 			"secret_id": secretID.String(),
 			"vault_id":  vaultID.String(),
 		},
 	})
 }
 
-func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, action string) (string, error) {
-	// 1. RBAC Check (Capabilities)
-	mem, err := s.repo.GetMembership(ctx, callerID, vaultID)
-	if err != nil || !mem.CanExecute(action) {
-		return "", errors.New("unauthorized: insufficient capabilities")
+func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, action string) (string, error) {
+	// 1. Check user-specific capabilities on the secret
+	userCaps, err := s.repo.GetUserSecretCapabilities(ctx, callerID, secretID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", errors.New("unauthorized: user has no capabilities on secret")
+		}
+		return "", err
+	}
+	if !userCaps.CanExecute(action) {
+		return "", errors.New("unauthorized: action not permitted")
 	}
 
 	// 2. Fetch Secret
@@ -95,7 +119,13 @@ func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID, vaultID uu
 		return "", err
 	}
 
-	// 3. The Unwrap Chain
+	// 3. Get membership to unwrap vault key
+	mem, err := s.repo.GetMembership(ctx, callerID, val.VaultID)
+	if err != nil {
+		return "", err
+	}
+
+	// 4. The Unwrap Chain
 	ku, _ := s.crypto.ExtractUserRootKey(ctx)
 	kv, err := s.crypto.UnwrapKey(mem.WrappedVaultKey, ku, mem.Nonce)
 	if err != nil {
@@ -123,13 +153,13 @@ func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID, vaultID uu
 	// 4. Record audit entry for secret access.
 	if auditErr := s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
-		CorrelationID: vaultID,
-		EventType:     "uncover_secret",
+		CorrelationID: val.VaultID,
+		EventType:     domain.EventTypeUncoverSecret,
 		ActorID:       secretID,
 		ActionStatus:  "success",
-		Payload: map[string]any{
+		Payload: domain.AuditPayload{
 			"secret_id": secretID.String(),
-			"vault_id":  vaultID.String(),
+			"vault_id":  val.VaultID.String(),
 			"action":    action,
 		},
 	}); auditErr != nil {
@@ -148,11 +178,62 @@ func (s *Impl) DeleteSecret(ctx context.Context, secretID uuid.UUID) error {
 	return s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
 		CorrelationID: secretID,
-		EventType:     "delete_secret",
+		EventType:     domain.EventTypeDeleteSecret,
 		ActorID:       secretID,
 		ActionStatus:  "success",
-		Payload: map[string]any{
+		Payload: domain.AuditPayload{
 			"secret_id": secretID.String(),
+		},
+	})
+}
+
+func (s *Impl) UpdateSecretCapabilities(ctx context.Context, callerID, targetUserID, secretID uuid.UUID, capabilities domain.Capabilities) error {
+	if err := capabilities.Validate(); err != nil {
+		return fmt.Errorf("invalid capabilities: %w", err)
+	}
+
+	// 1. Fetch secret to get the vault_id
+	val, err := s.repo.GetSecretValue(ctx, secretID)
+	if err != nil {
+		return err
+	}
+	vaultID := val.VaultID
+
+	// 2. Verify caller is a member of the vault
+	mem, err := s.repo.GetMembership(ctx, callerID, vaultID)
+	if err != nil {
+		return err
+	}
+	if mem == nil {
+		return errors.New("not a member of this vault")
+	}
+
+	// 3. Check if caller has admin role (only admins can change capabilities)
+	if mem.Role != "admin" {
+		return errors.New("unauthorized: only admins can update secret capabilities")
+	}
+
+	// 4. Update user-specific capabilities in repository
+	if err := s.repo.SaveUserSecretCapabilities(ctx, &domain.UserSecretCapabilities{
+		UserID:       targetUserID,
+		SecretID:     secretID,
+		Capabilities: capabilities,
+		UpdatedAt:    time.Now(),
+	}); err != nil {
+		return err
+	}
+
+	// 5. Record audit entry for capability update.
+	return s.RecordAudit(ctx, &domain.AuditEntry{
+		SourceService: "pvault",
+		CorrelationID: vaultID,
+		EventType:     domain.EventTypeUpdateSecretCapabilities,
+		ActorID:       callerID,
+		ActionStatus:  "success",
+		Payload: domain.AuditPayload{
+			"secret_id":    secretID.String(),
+			"target_user":  targetUserID.String(),
+			"capabilities": capabilities,
 		},
 	})
 }

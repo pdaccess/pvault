@@ -43,9 +43,8 @@ func (s *Impl) CreateVault(ctx context.Context, vaultID, userID uuid.UUID, userR
 		return fmt.Errorf("save master wrap: %w", err)
 	}
 
-	// 3. Add the caller as the vault's admin member with full capabilities.
-	adminCaps := []string{"see", "write", "delete", "connect"}
-	if err := s.CreateMembership(ctx, userID, vaultID, userRootKey, "admin", adminCaps); err != nil {
+	// 3. Add the caller as the vault's admin member.
+	if err := s.CreateMembership(ctx, userID, vaultID, userRootKey, "admin"); err != nil {
 		return fmt.Errorf("create admin membership: %w", err)
 	}
 
@@ -53,10 +52,10 @@ func (s *Impl) CreateVault(ctx context.Context, vaultID, userID uuid.UUID, userR
 	return s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
 		CorrelationID: vaultID,
-		EventType:     "create_vault",
+		EventType:     domain.EventTypeCreateVault,
 		ActorID:       userID,
 		ActionStatus:  "success",
-		Payload: map[string]any{
+		Payload: domain.AuditPayload{
 			"vault_id": vaultID.String(),
 			"user_id":  userID.String(),
 			"role":     "admin",

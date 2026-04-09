@@ -23,15 +23,13 @@ func NewHandler(vaultService ports.VaultService) *Handler {
 
 // callerFromContext extracts the authenticated caller's UUID and root key from
 // the context values set by the JWT auth interceptor.
+// Returns nil for userRootKey if not available (e.g., for Keycloak tokens).
 func callerFromContext(ctx context.Context) (uuid.UUID, []byte, error) {
 	userID, ok := ctx.Value(domain.ContextKeyUserID).(uuid.UUID)
 	if !ok {
 		return uuid.Nil, nil, fmt.Errorf("user_id not in context")
 	}
-	userRootKey, ok := ctx.Value(domain.ContextKeyUserRootKey).([]byte)
-	if !ok {
-		return uuid.Nil, nil, fmt.Errorf("user_root_key not in context")
-	}
+	userRootKey, _ := ctx.Value(domain.ContextKeyUserRootKey).([]byte)
 	return userID, userRootKey, nil
 }
 
@@ -41,7 +39,6 @@ func (h *Handler) CreateVault(ctx context.Context, req *v1.CreateVaultRequest) (
 		return &v1.CreateVaultResponse{Success: false, Message: "invalid vault_id"}, err
 	}
 
-	// Caller identity comes from JWT claims, not from the request body.
 	userID, userRootKey, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.CreateVaultResponse{Success: false, Message: "unauthenticated"}, status.Error(codes.Unauthenticated, err.Error())
@@ -54,7 +51,6 @@ func (h *Handler) CreateVault(ctx context.Context, req *v1.CreateVaultRequest) (
 }
 
 func (h *Handler) CreateMembership(ctx context.Context, req *v1.CreateMembershipRequest) (*v1.MembershipResponse, error) {
-	// UserId / UserRootKey in request refer to the NEW MEMBER being added, not the caller.
 	userID, err := uuid.Parse(req.UserId)
 	if err != nil {
 		return &v1.MembershipResponse{Success: false, Message: "invalid user_id"}, err
@@ -65,7 +61,12 @@ func (h *Handler) CreateMembership(ctx context.Context, req *v1.CreateMembership
 		return &v1.MembershipResponse{Success: false, Message: "invalid vault_id"}, err
 	}
 
-	err = h.vaultService.CreateMembership(ctx, userID, vaultID, req.UserRootKey, req.Role, req.Capabilities)
+	_, userRootKey, err := callerFromContext(ctx)
+	if err != nil {
+		return &v1.MembershipResponse{Success: false, Message: "unauthenticated"}, status.Error(codes.Unauthenticated, err.Error())
+	}
+
+	err = h.vaultService.CreateMembership(ctx, userID, vaultID, userRootKey, req.Role)
 	if err != nil {
 		return &v1.MembershipResponse{Success: false, Message: err.Error()}, err
 	}
@@ -107,7 +108,8 @@ func (h *Handler) ProtectSecret(ctx context.Context, req *v1.ProtectSecretReques
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, status.Error(codes.Unauthenticated, err.Error())
 	}
 
-	err = h.vaultService.ProtectSecret(ctx, callerID, secretID, vaultID, req.Plaintext)
+	caps := domain.CapabilitiesFromStrings(req.Capabilities)
+	err = h.vaultService.ProtectSecret(ctx, callerID, secretID, vaultID, req.Plaintext, caps)
 	if err != nil {
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, err
 	}
@@ -121,22 +123,42 @@ func (h *Handler) UncoverSecret(ctx context.Context, req *v1.UncoverSecretReques
 		return &v1.UncoverSecretResponse{Plaintext: ""}, err
 	}
 
-	vaultID, err := uuid.Parse(req.VaultId)
-	if err != nil {
-		return &v1.UncoverSecretResponse{Plaintext: ""}, err
-	}
-
 	callerID, _, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.UncoverSecretResponse{Plaintext: ""}, status.Error(codes.Unauthenticated, err.Error())
 	}
 
-	plaintext, err := h.vaultService.UncoverSecret(ctx, callerID, secretID, vaultID, req.Action)
+	plaintext, err := h.vaultService.UncoverSecret(ctx, callerID, secretID, req.Action)
 	if err != nil {
 		return &v1.UncoverSecretResponse{Plaintext: ""}, err
 	}
 
 	return &v1.UncoverSecretResponse{Plaintext: plaintext}, nil
+}
+
+func (h *Handler) UpdateSecretCapabilities(ctx context.Context, req *v1.UpdateSecretCapabilitiesRequest) (*v1.SecretResponse, error) {
+	secretID, err := uuid.Parse(req.SecretId)
+	if err != nil {
+		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, err
+	}
+
+	targetUserID, err := uuid.Parse(req.UserId)
+	if err != nil {
+		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, err
+	}
+
+	callerID, _, err := callerFromContext(ctx)
+	if err != nil {
+		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, status.Error(codes.Unauthenticated, err.Error())
+	}
+
+	caps := domain.CapabilitiesFromStrings(req.Capabilities)
+	err = h.vaultService.UpdateSecretCapabilities(ctx, callerID, targetUserID, secretID, caps)
+	if err != nil {
+		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, err
+	}
+
+	return &v1.SecretResponse{Success: true, SecretId: req.SecretId}, nil
 }
 
 func (h *Handler) RecordAuditLog(ctx context.Context, req *v1.AuditLogRequest) (*v1.AuditLogResponse, error) {
@@ -146,10 +168,10 @@ func (h *Handler) RecordAuditLog(ctx context.Context, req *v1.AuditLogRequest) (
 	entry := &domain.AuditEntry{
 		SourceService: req.SourceService,
 		CorrelationID: correlationID,
-		EventType:     req.EventType,
+		EventType:     domain.EventType(req.EventType),
 		ActorID:       actorID,
 		ActionStatus:  req.ActionStatus,
-		Payload:       map[string]any{"data": req.PayloadJson},
+		Payload:       domain.AuditPayload{"data": req.PayloadJson},
 		CurrHMAC:      []byte{},
 	}
 

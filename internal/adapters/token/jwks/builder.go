@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -24,31 +25,35 @@ type publicKeyJson struct {
 }
 
 type jwksTokenValidator struct {
-	currentKey ecdsa.PublicKey
-	client     *resty.Client
-	ctx        context.Context
-	mutext     sync.RWMutex
+	currentKey  ecdsa.PublicKey
+	client      *resty.Client
+	ctx         context.Context
+	mux         sync.RWMutex
+	mu          sync.Mutex
+	refreshErr  error
+	lastRefresh time.Time
 }
 
 func New(publicUrl string, syncDuration time.Duration) ports.TokenValidator {
-
-	client := resty.New()
-
 	validator := &jwksTokenValidator{
-		client: client,
+		client: resty.New(),
 		ctx:    log.With().Str("component", "jwks").Logger().WithContext(context.Background()),
-		mutext: sync.RWMutex{},
+	}
+
+	if err := validator.refresh(publicUrl); err != nil {
+		log.Ctx(validator.ctx).Warn().Err(err).Msg("initial JWKS fetch failed, will retry in background")
 	}
 
 	go func() {
-		timer := time.NewTicker(syncDuration)
+		ticker := time.NewTicker(syncDuration)
+		defer ticker.Stop()
 
-		defer timer.Stop()
-
-		for ; true; <-timer.C {
-			if err := validator.refresh(publicUrl); err != nil {
-				log.Ctx(validator.ctx).
-					Err(err).Msg("wrong response")
+		for {
+			select {
+			case <-ticker.C:
+				if err := validator.refresh(publicUrl); err != nil {
+					log.Ctx(validator.ctx).Error().Err(err).Msg("JWKS refresh failed")
+				}
 			}
 		}
 	}()
@@ -56,7 +61,6 @@ func New(publicUrl string, syncDuration time.Duration) ports.TokenValidator {
 	return validator
 }
 
-// Validate implements ports.TokenValidator.
 func (j *jwksTokenValidator) refresh(url string) error {
 	var currentKey publicKeyJson
 
@@ -65,30 +69,55 @@ func (j *jwksTokenValidator) refresh(url string) error {
 		Get(url)
 
 	if err != nil || resp.IsError() {
-		return fmt.Errorf("wrong response: %w resp: %v", err, resp.Error())
+		err := fmt.Errorf("jwks request failed: %w", err)
+		j.mu.Lock()
+		j.refreshErr = err
+		j.mu.Unlock()
+		return err
 	}
-	j.mutext.Lock()
-	j.currentKey.Curve = currentKey.CurveParams
-	j.currentKey.X = currentKey.MyX
-	j.currentKey.Y = currentKey.MyY
-	j.mutext.Unlock()
 
+	key := ecdsa.PublicKey{
+		Curve: currentKey.CurveParams,
+		X:     currentKey.MyX,
+		Y:     currentKey.MyY,
+	}
+
+	j.mux.Lock()
+	j.currentKey = key
+	j.lastRefresh = time.Now()
+	j.mux.Unlock()
+
+	j.mu.Lock()
+	j.refreshErr = nil
+	j.mu.Unlock()
+
+	log.Ctx(j.ctx).Debug().Msg("JWKS refreshed successfully")
 	return nil
 }
 
-// Validate implements ports.TokenValidator.
 func (j *jwksTokenValidator) Validate(ctx context.Context, tokenString string) error {
-	j.mutext.RLock()
-	defer j.mutext.RUnlock()
+	j.mux.RLock()
+	defer j.mux.RUnlock()
 
-	var cliams jwt.MapClaims
+	j.mu.Lock()
+	refreshErr := j.refreshErr
+	j.mu.Unlock()
 
-	_, err := jwt.ParseWithClaims(tokenString, &cliams, func(token *jwt.Token) (any, error) {
+	if refreshErr != nil {
+		return fmt.Errorf("jwks not available: %w", refreshErr)
+	}
+
+	var claims jwt.MapClaims
+
+	_, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (any, error) {
 		return &j.currentKey, nil
 	})
 
 	if err != nil {
-		return fmt.Errorf("parsewithclaims: %v : %w", err, domain.ErrInvalidToken)
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return fmt.Errorf("token expired: %w", domain.ErrInvalidToken)
+		}
+		return fmt.Errorf("parse token: %w", domain.ErrInvalidToken)
 	}
 
 	return nil

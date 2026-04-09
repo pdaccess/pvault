@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/pdaccess/pvault/internal/core/ports"
+	"github.com/rs/zerolog/log"
 )
 
 type PgPersistence struct {
@@ -19,14 +21,18 @@ type PgPersistence struct {
 }
 
 func New(connectionStr string) (ports.SecretRepository, error) {
+	log.Info().Msg("connecting to PostgreSQL...")
 	db, err := sqlx.Connect("pgx", connectionStr)
 	if err != nil {
 		return nil, fmt.Errorf("connection: %w", err)
 	}
+	log.Info().Msg("PostgreSQL connection established")
 
+	log.Info().Msg("initializing database schema...")
 	if err := CreateSchema(context.Background(), connectionStr); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
+	log.Info().Msg("database schema initialized")
 
 	return &PgPersistence{
 		db: db,
@@ -34,14 +40,10 @@ func New(connectionStr string) (ports.SecretRepository, error) {
 }
 
 func (p *PgPersistence) SaveMembership(ctx context.Context, m *domain.Membership) error {
-	capsJSON, err := json.Marshal(m.Capabilities)
-	if err != nil {
-		return fmt.Errorf("marshal capabilities: %w", err)
-	}
-	_, err = p.db.ExecContext(ctx, `
-		INSERT INTO vault.memberships (user_id, vault_id, wrapped_vault_key, nonce, role, capabilities)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
-		m.UserID, m.VaultID, m.WrappedVaultKey, m.Nonce, m.Role, capsJSON)
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO vault.memberships (user_id, vault_id, wrapped_vault_key, nonce, role)
+		VALUES ($1, $2, $3, $4, $5)`,
+		m.UserID, m.VaultID, m.WrappedVaultKey, m.Nonce, m.Role)
 	if err != nil {
 		return fmt.Errorf("save membership: %w", err)
 	}
@@ -50,31 +52,25 @@ func (p *PgPersistence) SaveMembership(ctx context.Context, m *domain.Membership
 
 func (p *PgPersistence) GetMembership(ctx context.Context, userID, vaultID uuid.UUID) (*domain.Membership, error) {
 	var row struct {
-		UserID          uuid.UUID       `db:"user_id"`
-		VaultID         uuid.UUID       `db:"vault_id"`
-		WrappedVaultKey []byte          `db:"wrapped_vault_key"`
-		Nonce           []byte          `db:"nonce"`
-		Role            string          `db:"role"`
-		Capabilities    json.RawMessage `db:"capabilities"`
-		UpdatedAt       any             `db:"updated_at"`
+		UserID          uuid.UUID `db:"user_id"`
+		VaultID         uuid.UUID `db:"vault_id"`
+		WrappedVaultKey []byte    `db:"wrapped_vault_key"`
+		Nonce           []byte    `db:"nonce"`
+		Role            string    `db:"role"`
+		UpdatedAt       any       `db:"updated_at"`
 	}
 	err := p.db.GetContext(ctx, &row, `
-		SELECT user_id, vault_id, wrapped_vault_key, nonce, role, capabilities, updated_at
+		SELECT user_id, vault_id, wrapped_vault_key, nonce, role, updated_at
 		FROM vault.memberships WHERE user_id = $1 AND vault_id = $2`, userID, vaultID)
 	if err != nil {
 		return nil, domain.ErrNotFound
-	}
-	var caps []string
-	if err := json.Unmarshal(row.Capabilities, &caps); err != nil {
-		return nil, fmt.Errorf("unmarshal capabilities: %w", err)
 	}
 	return &domain.Membership{
 		UserID:          row.UserID,
 		VaultID:         row.VaultID,
 		WrappedVaultKey: row.WrappedVaultKey,
 		Nonce:           row.Nonce,
-		Role:            row.Role,
-		Capabilities:    caps,
+		Role:            domain.RoleType(row.Role),
 	}, nil
 }
 
@@ -126,9 +122,9 @@ func (p *PgPersistence) SaveSecret(ctx context.Context, s *domain.SecretValue) e
 	}
 
 	_, err = p.db.ExecContext(ctx, `
-		INSERT INTO vault.secret_values (id, vault_id, ciphertext, wrapped_dek, nonce, version)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
-		s.ID, s.VaultID, s.Ciphertext, s.WrappedDEK, s.Nonce, s.Version)
+		INSERT INTO vault.secret_values (id, vault_id, creator_user_id, ciphertext, wrapped_dek, nonce, version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		s.ID, s.VaultID, s.CreatorUserID, s.Ciphertext, s.WrappedDEK, s.Nonce, s.Version)
 	if err != nil {
 		return fmt.Errorf("insert secret: %w", err)
 	}
@@ -139,19 +135,20 @@ func (p *PgPersistence) SaveSecret(ctx context.Context, s *domain.SecretValue) e
 func (p *PgPersistence) GetSecretValue(ctx context.Context, secretID uuid.UUID) (*domain.SecretValue, error) {
 	var s SecretValue
 	err := p.db.GetContext(ctx, &s, `
-		SELECT id, vault_id, ciphertext, wrapped_dek, nonce, version, updated_at
+		SELECT id, vault_id, creator_user_id, ciphertext, wrapped_dek, nonce, version, updated_at
 		FROM vault.secret_values WHERE id = $1`, secretID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
 	return &domain.SecretValue{
-		ID:         s.ID,
-		VaultID:    s.VaultID,
-		Ciphertext: s.Ciphertext,
-		WrappedDEK: s.WrappedDEK,
-		Nonce:      s.Nonce,
-		Version:    s.Version,
-		UpdatedAt:  s.UpdatedAt,
+		ID:            s.ID,
+		VaultID:       s.VaultID,
+		CreatorUserID: s.CreatorUserID,
+		Ciphertext:    s.Ciphertext,
+		WrappedDEK:    s.WrappedDEK,
+		Nonce:         s.Nonce,
+		Version:       s.Version,
+		UpdatedAt:     s.UpdatedAt,
 	}, nil
 }
 
@@ -161,6 +158,50 @@ func (p *PgPersistence) DeleteSecret(ctx context.Context, secretID uuid.UUID) er
 	if err != nil {
 		return fmt.Errorf("delete secret: %w", err)
 	}
+	return nil
+}
+
+func (p *PgPersistence) GetUserSecretCapabilities(ctx context.Context, userID, secretID uuid.UUID) (*domain.UserSecretCapabilities, error) {
+	var row struct {
+		UserID       uuid.UUID `db:"user_id"`
+		SecretID     uuid.UUID `db:"secret_id"`
+		Capabilities []byte    `db:"capabilities"`
+		UpdatedAt    time.Time `db:"updated_at"`
+	}
+	err := p.db.GetContext(ctx, &row, `
+		SELECT user_id, secret_id, capabilities, updated_at
+		FROM vault.user_secret_capabilities
+		WHERE user_id = $1 AND secret_id = $2`, userID, secretID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	var capList []string
+	if err := json.Unmarshal(row.Capabilities, &capList); err != nil {
+		return nil, fmt.Errorf("unmarshal capabilities: %w", err)
+	}
+	return &domain.UserSecretCapabilities{
+		UserID:       row.UserID,
+		SecretID:     row.SecretID,
+		Capabilities: domain.CapabilitiesFromStrings(capList),
+		UpdatedAt:    row.UpdatedAt,
+	}, nil
+}
+
+func (p *PgPersistence) SaveUserSecretCapabilities(ctx context.Context, caps *domain.UserSecretCapabilities) error {
+	capsJSON, err := json.Marshal(caps.Capabilities)
+	if err != nil {
+		return fmt.Errorf("marshal capabilities: %w", err)
+	}
+
+	_, err = p.db.ExecContext(ctx, `
+		INSERT INTO vault.user_secret_capabilities (user_id, secret_id, capabilities)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, secret_id) DO UPDATE SET capabilities = $3, updated_at = NOW()`,
+		caps.UserID, caps.SecretID, capsJSON)
+	if err != nil {
+		return fmt.Errorf("save user secret capabilities: %w", err)
+	}
+
 	return nil
 }
 
@@ -229,7 +270,7 @@ func (p *PgPersistence) GetLastAuditEntry(ctx context.Context) (*domain.AuditEnt
 		ID:            e.ID,
 		SourceService: e.SourceService,
 		CorrelationID: e.CorrelationID,
-		EventType:     e.EventType,
+		EventType:     domain.EventType(e.EventType),
 		ActorID:       e.ActorID,
 		ActionStatus:  e.ActionStatus,
 		Payload:       payload,

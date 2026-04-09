@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pdaccess/pvault/cmd/apps"
+	"github.com/pdaccess/pvault/internal/adapters/mock"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	pgrpc "github.com/pdaccess/pvault/internal/platform/grpc"
 	pgrpcclient "github.com/pdaccess/pvault/pkg/api/v1"
@@ -82,7 +83,7 @@ func TestMain(m *testing.M) {
 	logger := zerolog.New(nil).Level(zerolog.ErrorLevel)
 	testCtx := logger.With().Str("component", "test").Logger().WithContext(context.Background())
 
-	server, pg, err = apps.StartServer(testCtx, "localhost:0", connectionStr, false, "", "", testJWTSecret)
+	server, pg, err = apps.StartServer(testCtx, "localhost:0", connectionStr, false, "", "", "", testJWTSecret, mock.NewAllValidValidator())
 	if err != nil {
 		panic("failed to start server: " + err.Error())
 	}

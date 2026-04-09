@@ -18,6 +18,7 @@ service PVaultService {
   // Secret Management
   rpc ProtectSecret(ProtectSecretRequest) returns (SecretResponse);
   rpc UncoverSecret(UncoverSecretRequest) returns (UncoverSecretResponse);
+  rpc UpdateSecretCapabilities(UpdateSecretCapabilitiesRequest) returns (SecretResponse);
 
   // Audit Logging
   rpc RecordAuditLog(AuditLogRequest) returns (AuditLogResponse);
@@ -28,7 +29,6 @@ service PVaultService {
 message CreateVaultRequest {
   string vault_id      = 1; // UUID - caller assigned
   string user_id       = 2; // UUID - the user to add as admin
-  bytes  user_root_key = 3; // Ku for the admin user
 }
 
 message CreateVaultResponse {
@@ -44,7 +44,6 @@ message CreateMembershipRequest {
   string vault_id = 2;     // UUID string
   bytes user_root_key = 3; // Ku (to wrap Kv)
   string role = 4;
-  repeated string capabilities = 5;
 }
 
 message ListVaultsRequest {
@@ -66,6 +65,7 @@ message ProtectSecretRequest {
   string secret_id = 1;
   string vault_id = 2;
   string plaintext = 3;
+  repeated string capabilities = 4;
 }
 
 message SecretResponse {
@@ -75,12 +75,17 @@ message SecretResponse {
 
 message UncoverSecretRequest {
   string secret_id = 1;
-  string vault_id = 2;
-  string action = 3; // e.g., "connect", "see"
+  string action = 2; // e.g., "connect", "see"
 }
 
 message UncoverSecretResponse {
   string plaintext = 1;
+}
+
+message UpdateSecretCapabilitiesRequest {
+  string secret_id = 1;
+  string user_id = 2;
+  repeated string capabilities = 3;
 }
 
 // --- Audit Messages ---

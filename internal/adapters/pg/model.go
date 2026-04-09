@@ -12,18 +12,25 @@ type VaultMembership struct {
 	WrappedVaultKey []byte    `db:"wrapped_vault_key" json:"-"` // Never expose keys in JSON
 	Nonce           []byte    `db:"nonce" json:"-"`
 	Role            string    `db:"role" json:"role"`
-	Capabilities    []string  `db:"capabilities" json:"capabilities"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type SecretValue struct {
-	ID         uuid.UUID `db:"id" json:"id"`
-	VaultID    uuid.UUID `db:"vault_id" json:"vault_id"`
-	Ciphertext []byte    `db:"ciphertext" json:"-"`
-	WrappedDEK []byte    `db:"wrapped_dek" json:"-"`
-	Nonce      []byte    `db:"nonce" json:"-"`
-	Version    int       `db:"version" json:"version"`
-	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
+	ID            uuid.UUID `db:"id" json:"id"`
+	VaultID       uuid.UUID `db:"vault_id" json:"vault_id"`
+	CreatorUserID uuid.UUID `db:"creator_user_id" json:"creator_user_id"`
+	Ciphertext    []byte    `db:"ciphertext" json:"-"`
+	WrappedDEK    []byte    `db:"wrapped_dek" json:"-"`
+	Nonce         []byte    `db:"nonce" json:"-"`
+	Version       int       `db:"version" json:"version"`
+	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type UserSecretCapabilities struct {
+	UserID       uuid.UUID `db:"user_id" json:"user_id"`
+	SecretID     uuid.UUID `db:"secret_id" json:"secret_id"`
+	Capabilities []byte    `db:"capabilities" json:"-"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type MasterWrap struct {

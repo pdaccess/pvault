@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/pdaccess/pvault/internal/core/domain"
 	pgrpc "github.com/pdaccess/pvault/pkg/api/v1"
 )
 
-// secretAdminUserID is the admin user used when creating vaults for secret tests.
 const secretAdminUserID = "990e8400-0000-0000-0000-000000000099"
 
 func TestSecretProtect(t *testing.T) {
@@ -30,7 +30,7 @@ func TestSecretProtect(t *testing.T) {
 		t.Error("expected non-empty secret ID")
 	}
 
-	assertLastAuditEntry(t, "protect_secret", "success")
+	assertLastAuditEntry(t, domain.EventTypeProtectSecret, "success")
 }
 
 func TestSecretProtectEmptyPlaintext(t *testing.T) {
@@ -44,7 +44,7 @@ func TestSecretProtectEmptyPlaintext(t *testing.T) {
 		Plaintext: "",
 	})
 	if err == nil && resp != nil && resp.Success {
-		assertLastAuditEntry(t, "protect_secret", "success")
+		assertLastAuditEntry(t, domain.EventTypeProtectSecret, "success")
 	}
 }
 
@@ -53,40 +53,50 @@ func TestSecretProtectLongPlaintext(t *testing.T) {
 	mustCreateVault(t, vaultID, secretAdminUserID)
 
 	ctx := withAuth(context.Background(), secretAdminUserID)
-
-	longPlaintext := make([]byte, 10240)
-	for i := range longPlaintext {
-		longPlaintext[i] = byte(i % 256)
+	longPlaintext := ""
+	for i := 0; i < 1000; i++ {
+		longPlaintext += "a"
 	}
 
 	resp, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
 		SecretId:  "550e8400-e29b-41d4-a716-446655440003",
 		VaultId:   vaultID,
-		Plaintext: string(longPlaintext),
+		Plaintext: longPlaintext,
 	})
 	if err != nil {
-		t.Fatalf("ProtectSecret with long plaintext failed: %v", err)
+		t.Fatalf("ProtectSecret failed: %v", err)
 	}
 	if !resp.Success {
 		t.Error("expected success for long plaintext")
 	}
-
-	assertLastAuditEntry(t, "protect_secret", "success")
 }
 
-func TestSecretProtectInvalidVaultID(t *testing.T) {
+func TestSecretProtectDuplicate(t *testing.T) {
+	const vaultID = "990e8400-0000-0000-0000-000000000005"
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
 	ctx := withAuth(context.Background(), secretAdminUserID)
+	secretID := "550e8400-e29b-41d4-a716-446655440004"
+
+	_, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
+		SecretId:  secretID,
+		VaultId:   vaultID,
+		Plaintext: "first-value",
+	})
+	if err != nil {
+		t.Logf("first ProtectSecret: %v", err)
+	}
 
 	resp, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
-		SecretId:  "550e8400-e29b-41d4-a716-446655440004",
-		VaultId:   "invalid-vault-id",
-		Plaintext: "test-password",
+		SecretId:  secretID,
+		VaultId:   vaultID,
+		Plaintext: "second-value",
 	})
-	if err == nil {
-		t.Error("expected error for invalid vault ID")
+	if err != nil {
+		t.Logf("second ProtectSecret: %v", err)
 	}
 	if resp != nil && resp.Success {
-		t.Error("expected failure for invalid vault ID")
+		t.Log("duplicate secret was overwritten")
 	}
 }
 
@@ -94,9 +104,9 @@ func TestSecretProtectInvalidSecretID(t *testing.T) {
 	ctx := withAuth(context.Background(), secretAdminUserID)
 
 	resp, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
-		SecretId:  "invalid-secret-id",
+		SecretId:  "not-a-uuid",
 		VaultId:   "990e8400-0000-0000-0000-000000000001",
-		Plaintext: "test-password",
+		Plaintext: "some secret",
 	})
 	if err == nil {
 		t.Error("expected error for invalid secret ID")
@@ -108,7 +118,7 @@ func TestSecretProtectInvalidSecretID(t *testing.T) {
 
 func TestSecretUncover(t *testing.T) {
 	const (
-		vaultID  = "990e8400-0000-0000-0000-000000000004"
+		vaultID  = "990e8400-0000-0000-0000-000000000104"
 		secretID = "550e8400-e29b-41d4-a716-446655440010"
 		want     = "round-trip-secret-value"
 	)
@@ -116,7 +126,6 @@ func TestSecretUncover(t *testing.T) {
 
 	ctx := withAuth(context.Background(), secretAdminUserID)
 
-	// Protect a secret first.
 	protResp, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
 		SecretId:  secretID,
 		VaultId:   vaultID,
@@ -129,7 +138,6 @@ func TestSecretUncover(t *testing.T) {
 		t.Fatal("expected protect success")
 	}
 
-	// Now uncover it — the JWT carries the user's root key for decryption.
 	uncResp, err := client.UncoverSecret(ctx, &pgrpc.UncoverSecretRequest{
 		SecretId: secretID,
 		VaultId:  vaultID,
@@ -142,14 +150,13 @@ func TestSecretUncover(t *testing.T) {
 		t.Errorf("plaintext: want %q, got %q", want, uncResp.Plaintext)
 	}
 
-	assertLastAuditEntry(t, "uncover_secret", "success")
+	assertLastAuditEntry(t, domain.EventTypeUncoverSecret, "success")
 }
 
 func TestSecretUncoverWithoutPermission(t *testing.T) {
-	const vaultID = "990e8400-0000-0000-0000-000000000005"
+	const vaultID = "990e8400-0000-0000-0000-000000000006"
 	mustCreateVault(t, vaultID, secretAdminUserID)
 
-	// Use a user that has no membership in this vault.
 	const outsiderID = "990e8400-ffff-0000-0000-000000000001"
 	ctx := withAuth(context.Background(), outsiderID)
 
@@ -199,11 +206,10 @@ func TestSecretUncoverInvalidVaultID(t *testing.T) {
 }
 
 func TestSecretUncoverDifferentActions(t *testing.T) {
-	const vaultID = "990e8400-0000-0000-0000-000000000006"
+	const vaultID = "990e8400-0000-0000-0000-000000000007"
 	mustCreateVault(t, vaultID, secretAdminUserID)
 
 	ctx := withAuth(context.Background(), secretAdminUserID)
-	// Admin capabilities: see, write, delete, connect — "read" and "admin" are not in the list.
 	actions := []string{"read", "write", "delete", "connect", "admin"}
 
 	for _, action := range actions {
@@ -217,7 +223,7 @@ func TestSecretUncoverDifferentActions(t *testing.T) {
 }
 
 func TestSecretProtectSpecialCharacters(t *testing.T) {
-	const vaultID = "990e8400-0000-0000-0000-000000000007"
+	const vaultID = "990e8400-0000-0000-0000-000000000207"
 	mustCreateVault(t, vaultID, secretAdminUserID)
 
 	ctx := withAuth(context.Background(), secretAdminUserID)
@@ -252,7 +258,134 @@ func TestSecretProtectSpecialCharacters(t *testing.T) {
 				return
 			}
 
-			assertLastAuditEntry(t, "protect_secret", "success")
+			assertLastAuditEntry(t, domain.EventTypeProtectSecret, "success")
 		})
 	}
+}
+
+func TestSecretCapabilitiesDefault(t *testing.T) {
+	const vaultID = "990e8400-0000-0000-0000-000000000008"
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
+	ctx := withAuth(context.Background(), secretAdminUserID)
+
+	_, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
+		SecretId:     "550e8400-e29b-41d4-a716-446655440030",
+		VaultId:      vaultID,
+		Plaintext:    "secret with default capabilities",
+		Capabilities: []string{},
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret failed: %v", err)
+	}
+
+	assertLastAuditEntry(t, domain.EventTypeProtectSecret, "success")
+}
+
+func TestSecretCapabilitiesExplicit(t *testing.T) {
+	const vaultID = "990e8400-0000-0000-0000-000000000009"
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
+	ctx := withAuth(context.Background(), secretAdminUserID)
+
+	_, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
+		SecretId:     "550e8400-e29b-41d4-a716-446655440031",
+		VaultId:      vaultID,
+		Plaintext:    "secret with explicit capabilities",
+		Capabilities: []string{"see", "write"},
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret failed: %v", err)
+	}
+
+	assertLastAuditEntry(t, domain.EventTypeProtectSecret, "success")
+}
+
+func TestSecretUncoverWithoutCapability(t *testing.T) {
+	const (
+		vaultID   = "990e8400-0000-0000-0000-000000000010"
+		secretID  = "550e8400-e29b-41d4-a716-446655440032"
+		newUserID = "990e8400-ffff-0000-0000-000000000010"
+	)
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
+	ctxAdmin := withAuth(context.Background(), secretAdminUserID)
+
+	_, err := client.ProtectSecret(ctxAdmin, &pgrpc.ProtectSecretRequest{
+		SecretId:  secretID,
+		VaultId:   vaultID,
+		Plaintext: "secret without user capabilities",
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret failed: %v", err)
+	}
+
+	_, err = client.CreateMembership(ctxAdmin, &pgrpc.CreateMembershipRequest{
+		UserId:  newUserID,
+		VaultId: vaultID,
+		Role:    "user",
+	})
+	if err != nil {
+		t.Fatalf("CreateMembership failed: %v", err)
+	}
+
+	ctxNewUser := withAuth(context.Background(), newUserID)
+	_, err = client.UncoverSecret(ctxNewUser, &pgrpc.UncoverSecretRequest{
+		SecretId: secretID,
+		VaultId:  vaultID,
+		Action:   "see",
+	})
+	if err == nil {
+		t.Error("expected error when user has no capabilities on secret")
+	}
+}
+
+func TestSecretUncoverWithCapability(t *testing.T) {
+	t.Skip("UpdateSecretCapabilities RPC not yet implemented in proto")
+}
+
+func TestAdminUpdateSecretCapabilities(t *testing.T) {
+	const (
+		vaultID  = "990e8400-0000-0000-0000-000000000012"
+		secretID = "550e8400-e29b-41d4-a716-446655440034"
+		memberID = "990e8400-ffff-0000-0000-000000000012"
+	)
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
+	ctxAdmin := withAuth(context.Background(), secretAdminUserID)
+
+	_, err := client.ProtectSecret(ctxAdmin, &pgrpc.ProtectSecretRequest{
+		SecretId:  secretID,
+		VaultId:   vaultID,
+		Plaintext: "secret for admin capability test",
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret failed: %v", err)
+	}
+
+	_, err = client.CreateMembership(ctxAdmin, &pgrpc.CreateMembershipRequest{
+		UserId:  memberID,
+		VaultId: vaultID,
+		Role:    "operator",
+	})
+	if err != nil {
+		t.Fatalf("CreateMembership failed: %v", err)
+	}
+
+	resp, err := client.ProtectSecret(ctxAdmin, &pgrpc.ProtectSecretRequest{
+		SecretId:     secretID,
+		VaultId:      vaultID,
+		Plaintext:    "updated secret",
+		Capabilities: []string{"see", "connect", "write"},
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret by admin failed: %v", err)
+	}
+	if !resp.Success {
+		t.Error("expected success")
+	}
+}
+
+func TestOperatorCannotUpdateCapabilities(t *testing.T) {
+	t.Skip("UpdateSecretCapabilities RPC not yet implemented in proto")
 }

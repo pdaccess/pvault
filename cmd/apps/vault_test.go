@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/pdaccess/pvault/internal/core/domain"
 	pgrpc "github.com/pdaccess/pvault/pkg/api/v1"
 )
 
@@ -31,7 +32,7 @@ func TestCreateVault(t *testing.T) {
 		t.Error("expected non-empty message")
 	}
 
-	assertLastAuditEntry(t, "create_vault", "success")
+	assertLastAuditEntry(t, domain.EventTypeCreateVault, "success")
 }
 
 func TestCreateVaultDuplicate(t *testing.T) {
@@ -81,23 +82,17 @@ func TestCreateVaultAdminMembershipCreated(t *testing.T) {
 		t.Fatalf("CreateVault failed: %v", err)
 	}
 
-	// A membership for the same vault should fail as duplicate rather than
-	// "vault master key not found", confirming the master wrap was initialized.
 	resp, err := client.CreateMembership(ctx, &pgrpc.CreateMembershipRequest{
-		UserId:       testUserID,
-		VaultId:      vaultID,
-		UserRootKey:  testUserRootKey,
-		Role:         "admin",
-		Capabilities: []string{"see"},
+		UserId:  testUserID,
+		VaultId: vaultID,
+		Role:    "admin",
 	})
-	// Duplicate membership may succeed (upsert) or fail — either way the vault
-	// infrastructure was created (no "master key not found" error).
 	if err != nil {
 		if resp != nil && resp.Message == "vault master key not found" {
 			t.Error("vault master wrap was not initialized by CreateVault")
 		}
 	} else {
-		assertLastAuditEntry(t, "add_member", "success")
+		assertLastAuditEntry(t, domain.EventTypeAddMember, "success")
 	}
 }
 
@@ -113,7 +108,6 @@ func TestCreateVaultAuditLogged(t *testing.T) {
 		t.Fatalf("CreateVault failed: %v", err)
 	}
 
-	// Record an additional audit log to verify the chain is intact after vault creation.
 	auditResp, err := client.RecordAuditLog(ctx, &pgrpc.AuditLogRequest{
 		SourceService: "test",
 		CorrelationId: vaultID,

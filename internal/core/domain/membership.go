@@ -1,10 +1,16 @@
 package domain
 
 import (
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+type RoleType string
+
+const (
+	AdminRole = RoleType("admin")
+	UserRole  = RoleType("user")
 )
 
 type Membership struct {
@@ -12,12 +18,6 @@ type Membership struct {
 	VaultID         uuid.UUID
 	WrappedVaultKey []byte   // The Kv wrapped by the User's Ku
 	Nonce           []byte   // IV for the key-wrapping
-	Role            string   // e.g., "admin", "operator"
-	Capabilities    []string // e.g., ["see", "connect", "change"]
+	Role            RoleType // e.g., "admin", "operator"
 	UpdatedAt       time.Time
-}
-
-// CanExecute is a domain method to verify functional permissions
-func (m *Membership) CanExecute(capability string) bool {
-	return slices.Contains(m.Capabilities, capability)
 }

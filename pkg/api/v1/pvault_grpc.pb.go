@@ -26,6 +26,7 @@ type PVaultServiceClient interface {
 	// Secret Management
 	ProtectSecret(ctx context.Context, in *ProtectSecretRequest, opts ...grpc.CallOption) (*SecretResponse, error)
 	UncoverSecret(ctx context.Context, in *UncoverSecretRequest, opts ...grpc.CallOption) (*UncoverSecretResponse, error)
+	UpdateSecretCapabilities(ctx context.Context, in *UpdateSecretCapabilitiesRequest, opts ...grpc.CallOption) (*SecretResponse, error)
 	// Audit Logging
 	RecordAuditLog(ctx context.Context, in *AuditLogRequest, opts ...grpc.CallOption) (*AuditLogResponse, error)
 }
@@ -83,6 +84,15 @@ func (c *pVaultServiceClient) UncoverSecret(ctx context.Context, in *UncoverSecr
 	return out, nil
 }
 
+func (c *pVaultServiceClient) UpdateSecretCapabilities(ctx context.Context, in *UpdateSecretCapabilitiesRequest, opts ...grpc.CallOption) (*SecretResponse, error) {
+	out := new(SecretResponse)
+	err := c.cc.Invoke(ctx, "/pvault.v1.PVaultService/UpdateSecretCapabilities", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *pVaultServiceClient) RecordAuditLog(ctx context.Context, in *AuditLogRequest, opts ...grpc.CallOption) (*AuditLogResponse, error) {
 	out := new(AuditLogResponse)
 	err := c.cc.Invoke(ctx, "/pvault.v1.PVaultService/RecordAuditLog", in, out, opts...)
@@ -104,6 +114,7 @@ type PVaultServiceServer interface {
 	// Secret Management
 	ProtectSecret(context.Context, *ProtectSecretRequest) (*SecretResponse, error)
 	UncoverSecret(context.Context, *UncoverSecretRequest) (*UncoverSecretResponse, error)
+	UpdateSecretCapabilities(context.Context, *UpdateSecretCapabilitiesRequest) (*SecretResponse, error)
 	// Audit Logging
 	RecordAuditLog(context.Context, *AuditLogRequest) (*AuditLogResponse, error)
 	mustEmbedUnimplementedPVaultServiceServer()
@@ -127,6 +138,9 @@ func (UnimplementedPVaultServiceServer) ProtectSecret(context.Context, *ProtectS
 }
 func (UnimplementedPVaultServiceServer) UncoverSecret(context.Context, *UncoverSecretRequest) (*UncoverSecretResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UncoverSecret not implemented")
+}
+func (UnimplementedPVaultServiceServer) UpdateSecretCapabilities(context.Context, *UpdateSecretCapabilitiesRequest) (*SecretResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateSecretCapabilities not implemented")
 }
 func (UnimplementedPVaultServiceServer) RecordAuditLog(context.Context, *AuditLogRequest) (*AuditLogResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordAuditLog not implemented")
@@ -234,6 +248,24 @@ func _PVaultService_UncoverSecret_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PVaultService_UpdateSecretCapabilities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSecretCapabilitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PVaultServiceServer).UpdateSecretCapabilities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pvault.v1.PVaultService/UpdateSecretCapabilities",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PVaultServiceServer).UpdateSecretCapabilities(ctx, req.(*UpdateSecretCapabilitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PVaultService_RecordAuditLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AuditLogRequest)
 	if err := dec(in); err != nil {
@@ -278,6 +310,10 @@ var PVaultService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UncoverSecret",
 			Handler:    _PVaultService_UncoverSecret_Handler,
+		},
+		{
+			MethodName: "UpdateSecretCapabilities",
+			Handler:    _PVaultService_UpdateSecretCapabilities_Handler,
 		},
 		{
 			MethodName: "RecordAuditLog",

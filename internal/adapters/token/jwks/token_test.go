@@ -17,7 +17,7 @@ func TestValidateToken(t *testing.T) {
 	validator := &jwksTokenValidator{
 		client: client,
 		ctx:    log.With().Str("component", "jwks").Logger().WithContext(context.Background()),
-		mutext: sync.RWMutex{},
+		mu:     sync.Mutex{},
 	}
 
 	if err := validator.refresh(fmt.Sprintf("http://localhost%s%s", mockJwksServerlistenAddr, mockJwksServerPath)); err != nil {

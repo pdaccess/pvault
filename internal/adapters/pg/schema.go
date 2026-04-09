@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS vault.memberships (
     wrapped_vault_key  BYTEA NOT NULL, 
     nonce              BYTEA NOT NULL, 
     role               TEXT NOT NULL DEFAULT 'user',
-    capabilities       JSONB NOT NULL DEFAULT '["see", "connect"]',
     updated_at         TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (user_id, vault_id)
 );
@@ -34,11 +33,22 @@ CREATE TABLE IF NOT EXISTS vault.memberships (
 CREATE TABLE IF NOT EXISTS vault.secret_values (
     id                 UUID PRIMARY KEY,
     vault_id           UUID NOT NULL,
+    creator_user_id    UUID NOT NULL,
     ciphertext         BYTEA NOT NULL, 
     wrapped_dek        BYTEA NOT NULL, 
     nonce              BYTEA NOT NULL, 
     version            INT DEFAULT 1,
     updated_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2b. User-Secret Capabilities (Per-User Per-Secret Access Control)
+-- Defines which capabilities each user has for each secret.
+CREATE TABLE IF NOT EXISTS vault.user_secret_capabilities (
+    user_id       UUID NOT NULL,
+    secret_id     UUID NOT NULL,
+    capabilities  JSONB NOT NULL DEFAULT '["see"]',
+    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, secret_id)
 );
 
 -- 3. Vault Master Recovery (System-Level Backup)
@@ -71,7 +81,9 @@ CREATE TABLE IF NOT EXISTS vault.audit_chain (
 
 CREATE INDEX IF NOT EXISTS idx_vault_membership_user ON vault.memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_vault_secrets_vault ON vault.secret_values(vault_id);
-CREATE INDEX IF NOT EXISTS idx_audit_correlation ON vault.audit_chain(correlation_id);`
+CREATE INDEX IF NOT EXISTS idx_audit_correlation ON vault.audit_chain(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_user_secret_capabilities_user ON vault.user_secret_capabilities(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_secret_capabilities_secret ON vault.user_secret_capabilities(secret_id);`
 )
 
 func CreateSchema(ctx context.Context, connectionStr string) error {

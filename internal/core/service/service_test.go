@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 
 	var err error
 
-	impl, err = New(mock.New(), mock.NewCryptoService(), mock.NewAllValidValidator())
+	impl, err = New(mock.New(), mock.NewCryptoService())
 	if err != nil {
 		log.Ctx(ctx).Err(err).Msg("service init")
 		os.Exit(1)

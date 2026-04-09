@@ -93,6 +93,14 @@ func (m *mockDb) DeleteSecret(ctx context.Context, secretID uuid.UUID) error {
 	return nil
 }
 
+func (m *mockDb) GetUserSecretCapabilities(ctx context.Context, userID, secretID uuid.UUID) (*domain.UserSecretCapabilities, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockDb) SaveUserSecretCapabilities(ctx context.Context, caps *domain.UserSecretCapabilities) error {
+	return nil
+}
+
 func (m *mockDb) SaveMasterWrap(ctx context.Context, mw *domain.MasterWrap) error {
 	if m.masterWraps == nil {
 		m.masterWraps = make(map[uuid.UUID]*domain.MasterWrap)

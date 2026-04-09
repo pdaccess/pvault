@@ -5,16 +5,14 @@ import (
 )
 
 type Impl struct {
-	repo       ports.SecretRepository
-	validators []ports.TokenValidator
-	crypto     ports.CryptoService
+	repo   ports.SecretRepository
+	crypto ports.CryptoService
 }
 
-func New(persistence ports.SecretRepository, c ports.CryptoService, tokenValidators ...ports.TokenValidator) (ports.VaultService, error) {
+func New(persistence ports.SecretRepository, c ports.CryptoService) (ports.VaultService, error) {
 
 	return &Impl{
-		repo:       persistence,
-		validators: tokenValidators,
-		crypto:     c,
+		repo:   persistence,
+		crypto: c,
 	}, nil
 }

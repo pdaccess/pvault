@@ -19,6 +19,10 @@ type SecretRepository interface {
 	GetSecretValue(ctx context.Context, secretID uuid.UUID) (*domain.SecretValue, error)
 	DeleteSecret(ctx context.Context, secretID uuid.UUID) error
 
+	// User-Secret Capabilities Storage
+	GetUserSecretCapabilities(ctx context.Context, userID, secretID uuid.UUID) (*domain.UserSecretCapabilities, error)
+	SaveUserSecretCapabilities(ctx context.Context, caps *domain.UserSecretCapabilities) error
+
 	// Master/Recovery Storage
 	SaveMasterWrap(ctx context.Context, mw *domain.MasterWrap) error
 	GetMasterWrap(ctx context.Context, vaultID uuid.UUID) (*domain.MasterWrap, error)

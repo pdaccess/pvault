@@ -13,7 +13,7 @@ import (
 
 // --- Membership Operations ---
 
-func (s *Impl) CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, ku []byte, role string, caps []string) error {
+func (s *Impl) CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, ku []byte, role string) error {
 	// 1. Fetch Master Wrap to get the Vault Key (Kv).
 	//    The vault must be created via CreateVault before members can be added.
 	master, err := s.repo.GetMasterWrap(ctx, vaultID)
@@ -42,8 +42,7 @@ func (s *Impl) CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, 
 		VaultID:         vaultID,
 		WrappedVaultKey: wrappedKv,
 		Nonce:           nonce,
-		Role:            role,
-		Capabilities:    caps,
+		Role:            domain.RoleType(role),
 		UpdatedAt:       time.Now(),
 	}
 
@@ -55,14 +54,13 @@ func (s *Impl) CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, 
 	return s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
 		CorrelationID: vaultID,
-		EventType:     "add_member",
+		EventType:     domain.EventTypeAddMember,
 		ActorID:       userID,
 		ActionStatus:  "success",
-		Payload: map[string]any{
-			"vault_id":     vaultID.String(),
-			"user_id":      userID.String(),
-			"role":         role,
-			"capabilities": caps,
+		Payload: domain.AuditPayload{
+			"vault_id": vaultID.String(),
+			"user_id":  userID.String(),
+			"role":     role,
 		},
 	})
 }

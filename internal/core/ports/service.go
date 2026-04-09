@@ -12,14 +12,15 @@ type VaultService interface {
 	CreateVault(ctx context.Context, vaultID, userID uuid.UUID, userRootKey []byte) error
 
 	// Membership Operations
-	CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, ku []byte, role string, caps []string) error
+	CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, ku []byte, role string) error
 	ListAuthorizedVaults(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 	GetMembershipDetails(ctx context.Context, userID, vaultID uuid.UUID) (*domain.Membership, error)
 
 	// Secret Operations
-	ProtectSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, plaintext string) error
-	UncoverSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, action string) (string, error)
+	ProtectSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, plaintext string, capabilities domain.Capabilities) error
+	UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, action string) (string, error)
 	DeleteSecret(ctx context.Context, secretID uuid.UUID) error
+	UpdateSecretCapabilities(ctx context.Context, callerID, targetUserID, secretID uuid.UUID, capabilities domain.Capabilities) error
 
 	// System & Audit
 	RecordAudit(ctx context.Context, entry *domain.AuditEntry) error

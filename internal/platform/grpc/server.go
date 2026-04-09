@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -16,6 +17,7 @@ import (
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	v1 "github.com/pdaccess/pvault/pkg/api/v1"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -121,27 +123,32 @@ func New(vaultService ports.VaultService, opts ...Option) *Server {
 }
 
 func (s *Server) Start() error {
+	log.Info().Str("address", s.listenAddr).Msg("starting gRPC server")
+
 	lis, err := net.Listen("tcp", s.listenAddr)
 	if err != nil {
-		return err
+		return fmt.Errorf("listen: %w", err)
 	}
 
 	s.actualAddr = lis.Addr().String()
+	log.Info().Str("listening", s.actualAddr).Msg("gRPC server listening")
 
 	opts := []grpc.ServerOption{}
 
 	if s.tlsEnabled {
 		creds, err := credentials.NewServerTLSFromFile(s.tlsCertFile, s.tlsKeyFile)
 		if err != nil {
-			return err
+			return fmt.Errorf("TLS setup: %w", err)
 		}
 		opts = append(opts, grpc.Creds(creds))
+		log.Info().Msg("TLS enabled")
 	} else {
 		opts = append(opts, grpc.Creds(insecure.NewCredentials()))
+		log.Info().Msg("TLS disabled (using insecure credentials)")
 	}
 
 	opts = append(opts, grpc.UnaryInterceptor(s.authInterceptor))
-	opts = append(opts, grpc.ForceServerCodec(&JSONCodec{}))
+	// opts = append(opts, grpc.ForceServerCodec(&JSONCodec{}))
 
 	s.grpcServer = grpc.NewServer(opts...)
 
@@ -266,17 +273,26 @@ func (s *Server) fetchJWKSKey(kid string) (*rsa.PublicKey, error) {
 }
 
 // extractUserClaims reads user_uid and user_root_token from JWT map claims.
+// Falls back to "sub" claim if user_uid is not present (for Keycloak compatibility).
 func extractUserClaims(mc jwt.MapClaims) (*domain.UserClaims, error) {
-	userIDStr, _ := mc["user_uid"].(string)
+	userIDStr, ok := mc["user_uid"].(string)
+	if !ok || userIDStr == "" {
+		userIDStr, _ = mc["sub"].(string)
+	}
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user_uid claim: %w", err)
 	}
 
 	userRootTokenStr, _ := mc["user_root_token"].(string)
-	userRootKey, err := base64.StdEncoding.DecodeString(userRootTokenStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user_root_token claim: %w", err)
+	log.Debug().Msgf("extractUserClaims: user_root_token claim = %q %v\n", userRootTokenStr, mc)
+	var userRootKey []byte
+	if userRootTokenStr != "" {
+		userRootKey, err = hex.DecodeString(userRootTokenStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid user_root_token claim: %w", err)
+		}
+		log.Debug().Msgf("extractUserClaims: decoded userRootKey %s length = %d\n", string(userRootKey), len(userRootKey))
 	}
 
 	return &domain.UserClaims{UserID: userID, UserRootKey: userRootKey}, nil
