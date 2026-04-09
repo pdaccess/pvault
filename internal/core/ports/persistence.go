@@ -2,12 +2,32 @@ package ports
 
 import (
 	"context"
+
+	"github.com/google/uuid"
+	"github.com/pdaccess/pvault/internal/core/domain"
 )
 
-type Persistance interface {
-	UpsertRecord(ctx context.Context, parent, key string, value []byte) error
-	AppendAudit(ctx context.Context, key string, auditData []byte) error
+type SecretRepository interface {
+	// Membership Storage
+	SaveMembership(ctx context.Context, m *domain.Membership) error
+	GetMembership(ctx context.Context, userID, vaultID uuid.UUID) (*domain.Membership, error)
+	ListVaultIDsByUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	DeleteMembership(ctx context.Context, userID, vaultID uuid.UUID) error
 
-	FetchRecord(ctx context.Context, parent, key string) ([]byte, error)
-	SearchAudit(ctx context.Context, key string) ([][]byte, error)
+	// Secret Storage
+	SaveSecret(ctx context.Context, s *domain.SecretValue) error
+	GetSecretValue(ctx context.Context, secretID uuid.UUID) (*domain.SecretValue, error)
+	DeleteSecret(ctx context.Context, secretID uuid.UUID) error
+
+	// User-Secret Capabilities Storage
+	GetUserSecretCapabilities(ctx context.Context, userID, secretID uuid.UUID) (*domain.UserSecretCapabilities, error)
+	SaveUserSecretCapabilities(ctx context.Context, caps *domain.UserSecretCapabilities) error
+
+	// Master/Recovery Storage
+	SaveMasterWrap(ctx context.Context, mw *domain.MasterWrap) error
+	GetMasterWrap(ctx context.Context, vaultID uuid.UUID) (*domain.MasterWrap, error)
+
+	// Audit Storage
+	AppendAuditLog(ctx context.Context, entry *domain.AuditEntry) error
+	GetLastAuditEntry(ctx context.Context) (*domain.AuditEntry, error)
 }

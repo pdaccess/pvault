@@ -2,42 +2,34 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
-	"slices"
+	"time"
 
 	"github.com/pdaccess/pvault/internal/core/domain"
 )
 
-// Logs implements ports.Service.
-func (s *ServiceImpl) Logs(ctx context.Context, key domain.RecordKey) ([]domain.RawAudit, error) {
+// --- Audit & System ---
 
-	if err := s.auth(ctx); err != nil {
-		return nil, fmt.Errorf("unauthenticated: %w", err)
+func (s *Impl) RecordAudit(ctx context.Context, entry *domain.AuditEntry) error {
+	// 1. Fetch the last entry to get the previous HMAC
+	last, _ := s.repo.GetLastAuditEntry(ctx)
+
+	// 2. Prepare Data for HMAC
+	ks := s.crypto.GetServiceMasterKey()
+	h := hmac.New(sha256.New, ks)
+
+	data := fmt.Sprintf("%s%s%s%s", entry.CorrelationID, entry.EventType, entry.ActionStatus, entry.SourceService)
+	h.Write([]byte(data))
+
+	if last != nil {
+		h.Write(last.CurrHMAC)
+		entry.PrevHMAC = last.CurrHMAC
 	}
 
-	aduits, err := s.persistence.SearchAudit(ctx, string(key))
-	if err != nil {
-		return nil, fmt.Errorf("logs: %w", err)
-	}
+	entry.CurrHMAC = h.Sum(nil)
+	entry.UpdatedAt = time.Now()
 
-	var ret []domain.RawAudit
-
-	for _, audit := range aduits {
-		decrtyped, err := s.decrypt(audit)
-
-		if err != nil {
-			return nil, fmt.Errorf("decrypt: %w", err)
-		}
-
-		var d domain.RawAudit
-		if err := d.Restore(decrtyped); err != nil {
-			return nil, fmt.Errorf("restore: %w", err)
-		}
-
-		ret = append(ret, d)
-	}
-
-	slices.SortFunc(ret, domain.AuditSortByOpTime)
-
-	return ret, nil
+	return s.repo.AppendAuditLog(ctx, entry)
 }
