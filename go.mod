@@ -1,6 +1,6 @@
 module github.com/pdaccess/pvault
 
-go 1.21
+go 1.26.1
 
 require (
 	dario.cat/mergo v1.0.0 // indirect

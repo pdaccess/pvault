@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type OpType int
@@ -35,4 +37,17 @@ func (r *RawAudit) Restore(decrtyped []byte) error {
 
 func AuditSortByOpTime(a1, a2 RawAudit) int {
 	return a1.OperationTime.Compare(a2.OperationTime)
+}
+
+type AuditEntry struct {
+	ID            int64
+	SourceService string
+	CorrelationID uuid.UUID
+	EventType     string
+	ActorID       uuid.UUID
+	ActionStatus  string
+	Payload       map[string]any // Flexible metadata
+	PrevHMAC      []byte
+	CurrHMAC      []byte
+	UpdatedAt     time.Time
 }

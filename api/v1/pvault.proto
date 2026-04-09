@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package pvault.v1;
+
+option go_package = "github.com/pdaccess/pvault/pkg/api/v1;v1";
+
+import "google/protobuf/timestamp.proto";
+
+// Service definition for the Hardened Data Plane
+service PVaultService {
+  // Vault Management
+  rpc CreateVault(CreateVaultRequest) returns (CreateVaultResponse);
+
+  // Membership Management
+  rpc CreateMembership(CreateMembershipRequest) returns (MembershipResponse);
+  rpc ListAuthorizedVaults(ListVaultsRequest) returns (ListVaultsResponse);
+
+  // Secret Management
+  rpc ProtectSecret(ProtectSecretRequest) returns (SecretResponse);
+  rpc UncoverSecret(UncoverSecretRequest) returns (UncoverSecretResponse);
+
+  // Audit Logging
+  rpc RecordAuditLog(AuditLogRequest) returns (AuditLogResponse);
+}
+
+// --- Vault Messages ---
+
+message CreateVaultRequest {
+  string vault_id      = 1; // UUID - caller assigned
+  string user_id       = 2; // UUID - the user to add as admin
+  bytes  user_root_key = 3; // Ku for the admin user
+}
+
+message CreateVaultResponse {
+  string vault_id = 1;
+  bool   success  = 2;
+  string message  = 3;
+}
+
+// --- Membership Messages ---
+
+message CreateMembershipRequest {
+  string user_id = 1;      // UUID string
+  string vault_id = 2;     // UUID string
+  bytes user_root_key = 3; // Ku (to wrap Kv)
+  string role = 4;
+  repeated string capabilities = 5;
+}
+
+message ListVaultsRequest {
+  // Note: user_id is extracted from the JWT in the mTLS/Metadata layer
+}
+
+message ListVaultsResponse {
+  repeated string vault_ids = 1;
+}
+
+message MembershipResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// --- Secret Messages ---
+
+message ProtectSecretRequest {
+  string secret_id = 1;
+  string vault_id = 2;
+  string plaintext = 3;
+}
+
+message SecretResponse {
+  string secret_id = 1;
+  bool success = 2;
+}
+
+message UncoverSecretRequest {
+  string secret_id = 1;
+  string vault_id = 2;
+  string action = 3; // e.g., "connect", "see"
+}
+
+message UncoverSecretResponse {
+  string plaintext = 1;
+}
+
+// --- Audit Messages ---
+
+message AuditLogRequest {
+  string source_service = 1;
+  string correlation_id = 2;
+  string event_type = 3;
+  string actor_id = 4;
+  string action_status = 5;
+  string payload_json = 6; // Serialized JSON metadata
+}
+
+message AuditLogResponse {
+  int64 audit_id = 1;
+  bytes curr_hmac = 2; // For verification acknowledgment
+}

@@ -83,7 +83,7 @@ func (j *jwksTokenValidator) Validate(ctx context.Context, tokenString string) e
 
 	var cliams jwt.MapClaims
 
-	_, err := jwt.ParseWithClaims(tokenString, &cliams, func(token *jwt.Token) (interface{}, error) {
+	_, err := jwt.ParseWithClaims(tokenString, &cliams, func(token *jwt.Token) (any, error) {
 		return &j.currentKey, nil
 	})
 
