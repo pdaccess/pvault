@@ -10,6 +10,7 @@ import (
 	"github.com/pdaccess/pvault/internal/adapters/mock"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/pdaccess/pvault/internal/core/ports"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -140,7 +141,8 @@ func TestMain(m *testing.M) {
 		SecretRepository: mock.New(),
 	}
 	var err error
-	serviceImpl, err = New(testRepo, mock.NewCryptoService())
+	logger := zerolog.New(os.Stdout)
+	serviceImpl, err = New(testRepo, mock.NewCryptoService(), logger)
 	if err != nil {
 		log.Ctx(ctx).Err(err).Msg("service init")
 		os.Exit(1)

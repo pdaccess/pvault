@@ -187,6 +187,27 @@ func (m *mockDb) GetLastAuditEntry(ctx context.Context) (*domain.AuditEntry, err
 	return m.auditLogs[len(m.auditLogs)-1], nil
 }
 
+func (m *mockDb) GetAuditEntries(ctx context.Context, start, limit int, userID, vaultID *uuid.UUID) ([]domain.AuditEntry, error) {
+	var result []domain.AuditEntry
+	for i := len(m.auditLogs) - 1; i >= 0 && len(result) < limit; i-- {
+		entry := m.auditLogs[i]
+		if userID != nil && entry.ActorID != *userID {
+			continue
+		}
+		if vaultID != nil && entry.CorrelationID != *vaultID {
+			continue
+		}
+		result = append(result, *entry)
+	}
+	if start > len(result) {
+		return []domain.AuditEntry{}, nil
+	}
+	if start+limit > len(result) {
+		limit = len(result) - start
+	}
+	return result[start : start+limit], nil
+}
+
 func New() ports.SecretRepository {
 	return &mockDb{}
 }

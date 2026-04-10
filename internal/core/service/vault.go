@@ -10,11 +10,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pdaccess/pvault/internal/core/domain"
+	"github.com/rs/zerolog/log"
 )
 
 // CreateVault initializes a new vault, registers the caller as its admin member,
 // and appends an audit entry for the operation.
 func (s *Impl) CreateVault(ctx context.Context, vaultID, userID uuid.UUID, userRootKey []byte) error {
+	log.Info().Str("vault_id", vaultID.String()).Msg("creating vault")
+
 	// 1. Ensure the vault does not already exist.
 	existing, err := s.repo.GetMasterWrap(ctx, vaultID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {

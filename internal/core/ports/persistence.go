@@ -35,4 +35,5 @@ type SecretRepository interface {
 	// Audit Storage
 	AppendAuditLog(ctx context.Context, entry *domain.AuditEntry) error
 	GetLastAuditEntry(ctx context.Context) (*domain.AuditEntry, error)
+	GetAuditEntries(ctx context.Context, start, limit int, userID, vaultID *uuid.UUID) ([]domain.AuditEntry, error)
 }
