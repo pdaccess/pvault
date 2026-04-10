@@ -13,8 +13,22 @@ import (
 
 // --- Membership Operations ---
 
-func (s *Impl) CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, ku []byte, role string) error {
-	// 1. Fetch Master Wrap to get the Vault Key (Kv).
+func (s *Impl) CreateMembership(ctx context.Context, callerID, userID, vaultID uuid.UUID, ku []byte, role domain.VaultRole) error {
+	// Allow caller to self-register as admin (for vault creation)
+	isCreatingOwnAdmin := callerID == userID && role == domain.AdminRole
+
+	// 1. Verify caller is admin of the vault (unless self-registering as admin)
+	if !isCreatingOwnAdmin {
+		callerMem, err := s.repo.GetMembership(ctx, callerID, vaultID)
+		if err != nil {
+			return err
+		}
+		if callerMem.Role != domain.AdminRole {
+			return errors.New("unauthorized: only admin users can add membership")
+		}
+	}
+
+	// 2. Fetch Master Wrap to get the Vault Key (Kv).
 	//    The vault must be created via CreateVault before members can be added.
 	master, err := s.repo.GetMasterWrap(ctx, vaultID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -42,7 +56,7 @@ func (s *Impl) CreateMembership(ctx context.Context, userID, vaultID uuid.UUID, 
 		VaultID:         vaultID,
 		WrappedVaultKey: wrappedKv,
 		Nonce:           nonce,
-		Role:            domain.RoleType(role),
+		Role:            role,
 		UpdatedAt:       time.Now(),
 	}
 

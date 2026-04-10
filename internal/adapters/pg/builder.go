@@ -70,7 +70,7 @@ func (p *PgPersistence) GetMembership(ctx context.Context, userID, vaultID uuid.
 		VaultID:         row.VaultID,
 		WrappedVaultKey: row.WrappedVaultKey,
 		Nonce:           row.Nonce,
-		Role:            domain.RoleType(row.Role),
+		Role:            domain.VaultRole(row.Role),
 	}, nil
 }
 
@@ -132,11 +132,11 @@ func (p *PgPersistence) SaveSecret(ctx context.Context, s *domain.SecretValue) e
 	return nil
 }
 
-func (p *PgPersistence) GetSecretValue(ctx context.Context, secretID uuid.UUID) (*domain.SecretValue, error) {
+func (p *PgPersistence) GetSecretValue(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretValue, error) {
 	var s SecretValue
 	err := p.db.GetContext(ctx, &s, `
 		SELECT id, vault_id, creator_user_id, ciphertext, wrapped_dek, nonce, version, updated_at
-		FROM vault.secret_values WHERE id = $1`, secretID)
+		FROM vault.secret_values WHERE id = $1 AND version = $2`, secretID, version)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -150,6 +150,27 @@ func (p *PgPersistence) GetSecretValue(ctx context.Context, secretID uuid.UUID) 
 		Version:       s.Version,
 		UpdatedAt:     s.UpdatedAt,
 	}, nil
+}
+
+func (p *PgPersistence) GetSecret(ctx context.Context, secretID uuid.UUID, version *int) (*domain.SecretValue, error) {
+	if version == nil {
+		v, err := p.GetLatestSecretVersion(ctx, secretID)
+		if err != nil {
+			return nil, err
+		}
+		version = &v
+	}
+	return p.GetSecretValue(ctx, secretID, *version)
+}
+
+func (p *PgPersistence) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID) (int, error) {
+	var version int
+	err := p.db.GetContext(ctx, &version, `
+		SELECT COALESCE(MAX(version), 0) FROM vault.secret_values WHERE id = $1`, secretID)
+	if err != nil {
+		return 0, domain.ErrNotFound
+	}
+	return version, nil
 }
 
 func (p *PgPersistence) DeleteSecret(ctx context.Context, secretID uuid.UUID) error {
@@ -202,6 +223,50 @@ func (p *PgPersistence) SaveUserSecretCapabilities(ctx context.Context, caps *do
 		return fmt.Errorf("save user secret capabilities: %w", err)
 	}
 
+	return nil
+}
+
+func (p *PgPersistence) SaveCheckout(ctx context.Context, checkout *domain.SecretCheckout) error {
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO vault.secret_checkouts (secret_id, version, user_id, checked_out_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (secret_id, version) DO UPDATE SET user_id = $3, checked_out_at = $4`,
+		checkout.SecretID, checkout.Version, checkout.UserID, checkout.CheckedOutAt)
+	if err != nil {
+		return fmt.Errorf("save checkout: %w", err)
+	}
+	return nil
+}
+
+func (p *PgPersistence) GetCheckout(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretCheckout, error) {
+	var row struct {
+		SecretID     uuid.UUID `db:"secret_id"`
+		Version      int       `db:"version"`
+		UserID       uuid.UUID `db:"user_id"`
+		CheckedOutAt time.Time `db:"checked_out_at"`
+	}
+	err := p.db.GetContext(ctx, &row, `
+		SELECT secret_id, version, user_id, checked_out_at
+		FROM vault.secret_checkouts WHERE secret_id = $1 AND version = $2`,
+		secretID, version)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	return &domain.SecretCheckout{
+		SecretID:     row.SecretID,
+		Version:      row.Version,
+		UserID:       row.UserID,
+		CheckedOutAt: row.CheckedOutAt,
+	}, nil
+}
+
+func (p *PgPersistence) DeleteCheckout(ctx context.Context, secretID uuid.UUID, version int) error {
+	_, err := p.db.ExecContext(ctx, `
+		DELETE FROM vault.secret_checkouts WHERE secret_id = $1 AND version = $2`,
+		secretID, version)
+	if err != nil {
+		return fmt.Errorf("delete checkout: %w", err)
+	}
 	return nil
 }
 

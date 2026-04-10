@@ -61,12 +61,12 @@ func (h *Handler) CreateMembership(ctx context.Context, req *v1.CreateMembership
 		return &v1.MembershipResponse{Success: false, Message: "invalid vault_id"}, err
 	}
 
-	_, userRootKey, err := callerFromContext(ctx)
+	callerID, userRootKey, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.MembershipResponse{Success: false, Message: "unauthenticated"}, status.Error(codes.Unauthenticated, err.Error())
 	}
 
-	err = h.vaultService.CreateMembership(ctx, userID, vaultID, userRootKey, req.Role)
+	err = h.vaultService.CreateMembership(ctx, callerID, userID, vaultID, userRootKey, domain.VaultRole(req.Role))
 	if err != nil {
 		return &v1.MembershipResponse{Success: false, Message: err.Error()}, err
 	}
@@ -108,13 +108,25 @@ func (h *Handler) ProtectSecret(ctx context.Context, req *v1.ProtectSecretReques
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, status.Error(codes.Unauthenticated, err.Error())
 	}
 
-	caps := domain.CapabilitiesFromStrings(req.Capabilities)
+	caps := domain.CapabilitiesFromStrings(req.GetCapabilities())
+	// Version is always auto-incremented on the service layer
 	err = h.vaultService.ProtectSecret(ctx, callerID, secretID, vaultID, req.Plaintext, caps)
 	if err != nil {
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, err
 	}
 
-	return &v1.SecretResponse{Success: true, SecretId: req.SecretId}, nil
+	// Get latest version from service
+	var savedVer int32 = 1
+	latest, ok := h.vaultService.(interface {
+		GetLatestSecretVersion(context.Context, uuid.UUID) (int, error)
+	})
+	if ok {
+		if v, err := latest.GetLatestSecretVersion(ctx, secretID); err == nil {
+			savedVer = int32(v)
+		}
+	}
+
+	return &v1.SecretResponse{Success: true, SecretId: req.SecretId, Version: savedVer}, nil
 }
 
 func (h *Handler) UncoverSecret(ctx context.Context, req *v1.UncoverSecretRequest) (*v1.UncoverSecretResponse, error) {
@@ -128,12 +140,18 @@ func (h *Handler) UncoverSecret(ctx context.Context, req *v1.UncoverSecretReques
 		return &v1.UncoverSecretResponse{Plaintext: ""}, status.Error(codes.Unauthenticated, err.Error())
 	}
 
-	plaintext, err := h.vaultService.UncoverSecret(ctx, callerID, secretID, req.Action)
+	var version *int
+	if v := req.GetVersion(); v > 0 {
+		version = new(int)
+		*version = int(v)
+	}
+	action := domain.Capability(req.Action)
+	plaintext, returnedVersion, err := h.vaultService.UncoverSecret(ctx, callerID, secretID, action, version)
 	if err != nil {
 		return &v1.UncoverSecretResponse{Plaintext: ""}, err
 	}
 
-	return &v1.UncoverSecretResponse{Plaintext: plaintext}, nil
+	return &v1.UncoverSecretResponse{Plaintext: plaintext, Version: int32(returnedVersion)}, nil
 }
 
 func (h *Handler) UpdateSecretCapabilities(ctx context.Context, req *v1.UpdateSecretCapabilitiesRequest) (*v1.SecretResponse, error) {

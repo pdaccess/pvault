@@ -2,7 +2,7 @@ package apps_test
 
 import (
 	"context"
-	"encoding/base64"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -36,7 +36,7 @@ var (
 func makeTestToken(userID string, userRootKey []byte) string {
 	claims := jwt.MapClaims{
 		"user_uid":        userID,
-		"user_root_token": base64.StdEncoding.EncodeToString(userRootKey),
+		"user_root_token": hex.EncodeToString(userRootKey),
 		"exp":             time.Now().Add(time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

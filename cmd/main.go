@@ -6,12 +6,21 @@ import (
 	"path/filepath"
 
 	"github.com/pdaccess/pvault/cmd/apps"
+	"github.com/rs/zerolog/log"
 	"github.com/thatisuday/commando"
 )
 
 const tokenFileName = ".pvault/token"
 
+var Commit, BuildTime, BuildEnv string
+
 func main() {
+	log.Info().
+		Str("Commnit", Commit).
+		Str("BuildTime", BuildTime).
+		Str("nBuildEnv", BuildEnv).
+		Send()
+
 	commando.SetExecutableName("pvault").
 		SetVersion("v1.0.0").
 		SetDescription("PVault CLI")

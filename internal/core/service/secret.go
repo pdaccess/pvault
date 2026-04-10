@@ -58,6 +58,22 @@ func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uu
 	}
 	storedWrappedDEK := append(dekNonce, wrappedDEK...) //nolint:gocritic
 
+	// 5. Determine version: always auto-increment from latest
+	latestVersion := 0
+	if latest, err := s.repo.GetSecret(ctx, secretID, nil); err == nil {
+		latestVersion = latest.Version
+
+		// Check write capability for update
+		callerCaps, err := s.repo.GetUserSecretCapabilities(ctx, callerID, secretID)
+		if err != nil {
+			return err
+		}
+		if !callerCaps.CanExecute(string(domain.CapWrite)) {
+			return errors.New("unauthorized: write capability required to update secret")
+		}
+	}
+	newVersion := latestVersion + 1
+
 	secret := &domain.SecretValue{
 		ID:            secretID,
 		VaultID:       vaultID,
@@ -65,7 +81,7 @@ func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uu
 		Ciphertext:    ciphertext,
 		WrappedDEK:    storedWrappedDEK,
 		Nonce:         nonce,
-		Version:       1,
+		Version:       newVersion,
 		UpdatedAt:     time.Now(),
 	}
 
@@ -73,17 +89,19 @@ func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uu
 		return err
 	}
 
-	// 5. Grant default capabilities to the caller
-	if len(defaultCapabilities) == 0 {
-		defaultCapabilities = domain.Capabilities{domain.CapSee, domain.CapConnect}
-	}
-	if err := s.repo.SaveUserSecretCapabilities(ctx, &domain.UserSecretCapabilities{
-		UserID:       callerID,
-		SecretID:     secretID,
-		Capabilities: defaultCapabilities,
-		UpdatedAt:    time.Now(),
-	}); err != nil {
-		return err
+	// 6. Grant default capabilities only for new secrets
+	if latestVersion == 0 {
+		if len(defaultCapabilities) == 0 {
+			defaultCapabilities = domain.ValidCapabilities
+		}
+		if err := s.repo.SaveUserSecretCapabilities(ctx, &domain.UserSecretCapabilities{
+			UserID:       callerID,
+			SecretID:     secretID,
+			Capabilities: defaultCapabilities,
+			UpdatedAt:    time.Now(),
+		}); err != nil {
+			return err
+		}
 	}
 
 	// 6. Record audit entry for secret protection.
@@ -100,58 +118,131 @@ func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uu
 	})
 }
 
-func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, action string) (string, error) {
-	// 1. Check user-specific capabilities on the secret
+func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, action domain.Capability, version *int) (string, int, error) {
 	userCaps, err := s.repo.GetUserSecretCapabilities(ctx, callerID, secretID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return "", errors.New("unauthorized: user has no capabilities on secret")
+			return "", 0, errors.New("unauthorized: user has no capabilities on secret")
 		}
-		return "", err
+		return "", 0, err
 	}
-	if !userCaps.CanExecute(action) {
-		return "", errors.New("unauthorized: action not permitted")
+	if !userCaps.CanExecute(string(action)) {
+		return "", 0, errors.New("unauthorized: action not permitted")
 	}
 
-	// 2. Fetch Secret
-	val, err := s.repo.GetSecretValue(ctx, secretID)
+	var versionToFetch int
+	if version == nil {
+		latest, err := s.repo.GetSecret(ctx, secretID, nil)
+		if err != nil {
+			return "", 0, err
+		}
+		versionToFetch = latest.Version
+	} else {
+		versionToFetch = *version
+	}
+
+	val, err := s.repo.GetSecret(ctx, secretID, &versionToFetch)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	// 3. Get membership to unwrap vault key
+	if action == domain.CapCheck {
+		checkout, err := s.repo.GetCheckout(ctx, secretID, versionToFetch)
+		if err == nil && checkout.UserID == callerID && !checkout.IsExpired() {
+			if err := s.repo.DeleteCheckout(ctx, secretID, versionToFetch); err != nil {
+				s.RecordAudit(ctx, &domain.AuditEntry{
+					SourceService: "pvault",
+					CorrelationID: val.VaultID,
+					EventType:     domain.EventTypeCheckOut,
+					ActorID:       callerID,
+					ActionStatus:  "success",
+					Payload: domain.AuditPayload{
+						"secret_id": secretID.String(),
+						"version":   versionToFetch,
+					},
+				})
+				return "", 0, err
+			}
+			s.RecordAudit(ctx, &domain.AuditEntry{
+				SourceService: "pvault",
+				CorrelationID: val.VaultID,
+				EventType:     domain.EventTypeCheckOut,
+				ActorID:       callerID,
+				ActionStatus:  "success",
+				Payload: domain.AuditPayload{
+					"secret_id": secretID.String(),
+					"version":   versionToFetch,
+				},
+			})
+			return "", versionToFetch, nil
+		}
+
+		if err == nil && checkout.UserID != callerID && !checkout.IsExpired() {
+			return "", 0, errors.New("secret checked out by another user")
+		}
+
+		checkout = &domain.SecretCheckout{
+			SecretID:     secretID,
+			Version:      versionToFetch,
+			UserID:       callerID,
+			CheckedOutAt: time.Now(),
+		}
+		if err := s.repo.SaveCheckout(ctx, checkout); err != nil {
+			return "", 0, err
+		}
+		s.RecordAudit(ctx, &domain.AuditEntry{
+			SourceService: "pvault",
+			CorrelationID: val.VaultID,
+			EventType:     domain.EventTypeCheckIn,
+			ActorID:       callerID,
+			ActionStatus:  "success",
+			Payload: domain.AuditPayload{
+				"secret_id": secretID.String(),
+				"version":   versionToFetch,
+			},
+		})
+		return "", versionToFetch, nil
+	}
+
+	checkout, err := s.repo.GetCheckout(ctx, secretID, versionToFetch)
+	if err == nil && !checkout.IsExpired() {
+		if checkout.UserID != callerID {
+			return "", 0, errors.New("secret checked out by another user")
+		}
+	}
+	if checkout != nil && checkout.IsExpired() {
+		s.repo.DeleteCheckout(ctx, secretID, versionToFetch)
+	}
+
 	mem, err := s.repo.GetMembership(ctx, callerID, val.VaultID)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	// 4. The Unwrap Chain
 	ku, _ := s.crypto.ExtractUserRootKey(ctx)
 	kv, err := s.crypto.UnwrapKey(mem.WrappedVaultKey, ku, mem.Nonce)
 	if err != nil {
-		return "", errors.New("crypto failure: vault key unwrap")
+		return "", 0, errors.New("crypto failure: vault key unwrap")
 	}
 
-	// WrappedDEK is stored as [12-byte nonce || encrypted DEK] — see ProtectSecret.
 	const gcmNonceSize = 12
 	if len(val.WrappedDEK) < gcmNonceSize {
-		return "", errors.New("crypto failure: wrapped DEK too short")
+		return "", 0, errors.New("crypto failure: wrapped DEK too short")
 	}
 	dekNonce := val.WrappedDEK[:gcmNonceSize]
 	wrappedDEKData := val.WrappedDEK[gcmNonceSize:]
 
 	dek, err := s.crypto.UnwrapKey(wrappedDEKData, kv, dekNonce)
 	if err != nil {
-		return "", errors.New("crypto failure: dek unwrap")
+		return "", 0, errors.New("crypto failure: dek unwrap")
 	}
 
 	plaintext, err := s.crypto.Decrypt(val.Ciphertext, dek, val.Nonce)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	// 4. Record audit entry for secret access.
-	if auditErr := s.RecordAudit(ctx, &domain.AuditEntry{
+	s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
 		CorrelationID: val.VaultID,
 		EventType:     domain.EventTypeUncoverSecret,
@@ -162,11 +253,9 @@ func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, 
 			"vault_id":  val.VaultID.String(),
 			"action":    action,
 		},
-	}); auditErr != nil {
-		return "", auditErr
-	}
+	})
 
-	return string(plaintext), nil
+	return string(plaintext), val.Version, nil
 }
 
 func (s *Impl) DeleteSecret(ctx context.Context, secretID uuid.UUID) error {
@@ -192,12 +281,12 @@ func (s *Impl) UpdateSecretCapabilities(ctx context.Context, callerID, targetUse
 		return fmt.Errorf("invalid capabilities: %w", err)
 	}
 
-	// 1. Fetch secret to get the vault_id
-	val, err := s.repo.GetSecretValue(ctx, secretID)
+	// 1. Fetch latest secret to get the vault_id
+	latest, err := s.repo.GetSecret(ctx, secretID, nil)
 	if err != nil {
 		return err
 	}
-	vaultID := val.VaultID
+	vaultID := latest.VaultID
 
 	// 2. Verify caller is a member of the vault
 	mem, err := s.repo.GetMembership(ctx, callerID, vaultID)
@@ -208,12 +297,16 @@ func (s *Impl) UpdateSecretCapabilities(ctx context.Context, callerID, targetUse
 		return errors.New("not a member of this vault")
 	}
 
-	// 3. Check if caller has admin role (only admins can change capabilities)
-	if mem.Role != "admin" {
-		return errors.New("unauthorized: only admins can update secret capabilities")
+	// 3. Check if caller has mngt capability on the secret
+	callerCaps, err := s.repo.GetUserSecretCapabilities(ctx, callerID, secretID)
+	if err != nil {
+		return err
+	}
+	if !callerCaps.CanExecute(string(domain.CapMngt)) {
+		return errors.New("unauthorized: mngt capability required")
 	}
 
-	// 4. Update user-specific capabilities in repository
+	// 5. Update user-specific capabilities in repository
 	if err := s.repo.SaveUserSecretCapabilities(ctx, &domain.UserSecretCapabilities{
 		UserID:       targetUserID,
 		SecretID:     secretID,
