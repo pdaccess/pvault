@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -14,9 +15,10 @@ var (
 	CapSee     = Capability("see")
 	CapConnect = Capability("connect")
 	CapWrite   = Capability("write")
-	CapDelete  = Capability("delete")
+	CapCheck   = Capability("check")
+	CapMngt    = Capability("mngt")
 
-	ValidCapabilities = Capabilities{CapSee, CapConnect, CapWrite, CapDelete}
+	ValidCapabilities = Capabilities{CapSee, CapConnect, CapWrite, CapCheck, CapMngt}
 )
 
 type Capability string
@@ -30,7 +32,12 @@ func (c Capability) IsValid() bool {
 type Capabilities []Capability
 
 func (c Capabilities) CanExecute(action string) bool {
-	return slices.Contains(c, Capability(action))
+	actionCap := Capability(action)
+	if slices.Contains(c, actionCap) {
+		return true
+	}
+
+	return false
 }
 
 func (c Capabilities) HasAll(other Capabilities) bool {
@@ -44,8 +51,8 @@ func (c Capabilities) HasAll(other Capabilities) bool {
 
 func (c Capabilities) Validate() error {
 	for _, cap := range c {
-		if !cap.IsValid() {
-			return errors.Join(ErrInvalidCapability, errors.New(string(cap)))
+		if !slices.Contains(ValidCapabilities, cap) {
+			return fmt.Errorf("%w: %s", ErrInvalidCapability, cap)
 		}
 	}
 	return nil
@@ -60,9 +67,10 @@ func (c Capabilities) Strings() []string {
 }
 
 func CapabilitiesFromStrings(s []string) Capabilities {
-	result := make(Capabilities, len(s))
-	for i, s := range s {
-		result[i] = Capability(s)
+	var result Capabilities
+	for _, c := range s {
+		cap := Capability(c)
+		result = append(result, cap)
 	}
 	return result
 }
@@ -94,4 +102,17 @@ type MasterWrap struct {
 	MasterWrappedKey []byte // The Kv wrapped by Service Master Key (Ks)
 	Nonce            []byte
 	UpdatedAt        time.Time
+}
+
+type SecretCheckout struct {
+	SecretID     uuid.UUID
+	Version      int
+	UserID       uuid.UUID
+	CheckedOutAt time.Time
+}
+
+const CheckoutTimeout = 1 * time.Hour
+
+func (s *SecretCheckout) IsExpired() bool {
+	return time.Since(s.CheckedOutAt) > CheckoutTimeout
 }

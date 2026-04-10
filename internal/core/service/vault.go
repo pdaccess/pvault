@@ -44,7 +44,7 @@ func (s *Impl) CreateVault(ctx context.Context, vaultID, userID uuid.UUID, userR
 	}
 
 	// 3. Add the caller as the vault's admin member.
-	if err := s.CreateMembership(ctx, userID, vaultID, userRootKey, "admin"); err != nil {
+	if err := s.CreateMembership(ctx, userID, userID, vaultID, userRootKey, domain.AdminRole); err != nil {
 		return fmt.Errorf("create admin membership: %w", err)
 	}
 

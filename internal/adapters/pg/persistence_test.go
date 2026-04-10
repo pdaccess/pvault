@@ -38,7 +38,7 @@ func TestSecret(t *testing.T) {
 		t.Fatalf("SaveSecret shouldn't return error :%v", err)
 	}
 
-	secret, err := backend.GetSecretValue(context.TODO(), secretID)
+	secret, err := backend.GetSecret(context.TODO(), secretID, nil)
 
 	if err != nil {
 		t.Fatalf("GetSecretValue shouldn't return error :%v", err)

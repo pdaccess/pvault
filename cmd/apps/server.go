@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/pdaccess/pvault/internal/adapters/crypto"
+	"github.com/pdaccess/pvault/internal/adapters/jwks"
 	"github.com/pdaccess/pvault/internal/adapters/mock"
 	"github.com/pdaccess/pvault/internal/adapters/pg"
-	"github.com/pdaccess/pvault/internal/adapters/token/jwks"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	"github.com/pdaccess/pvault/internal/core/service"
 	grpcsrv "github.com/pdaccess/pvault/internal/platform/grpc"
@@ -20,14 +20,43 @@ import (
 	"github.com/thatisuday/commando"
 )
 
+func getEnvOrFlag(envVar, flagValue string) string {
+	if val := os.Getenv(envVar); val != "" {
+		return val
+	}
+	return flagValue
+}
+
 func CreateServer(args map[string]commando.ArgValue, flags map[string]commando.FlagValue) {
-	listenAddr, _ := flags["listen"].GetString()
-	dbConnStr, _ := flags["db"].GetString()
+	listenAddr := os.Getenv("PV_LISTEN")
+	if listenAddr == "" {
+		listenAddr, _ = flags["listen"].GetString()
+	}
+
+	dbConnStr := os.Getenv("PV_DB")
+	if dbConnStr == "" {
+		dbConnStr = "postgres://postgres:postgres@postgres:5432/pvault"
+	}
+
+	jwksURL := os.Getenv("PV_JWKS")
+	if jwksURL == "" {
+		jwksURL, _ = flags["jwks"].GetString()
+	}
+
 	tlsEnabled, _ := flags["tls"].GetBool()
 	tlsCertFile, _ := flags["tls-cert"].GetString()
+	tlsCertFile = getEnvOrFlag("PV_TLS_CERT", tlsCertFile)
 	tlsKeyFile, _ := flags["tls-key"].GetString()
+	tlsKeyFile = getEnvOrFlag("PV_TLS_KEY", tlsKeyFile)
+
 	logLevel, _ := flags["log-level"].GetString()
-	jwksURL, _ := flags["jwks"].GetString()
+	logLevel = getEnvOrFlag("PV_LOG_LEVEL", logLevel)
+
+	jwksRefreshInterval := getEnvOrFlag("PV_JWKS_REFRESH", "5m")
+	refreshDuration, err := time.ParseDuration(jwksRefreshInterval)
+	if err != nil {
+		refreshDuration = 5 * time.Minute
+	}
 
 	logger := zerolog.New(os.Stdout).Level(zerolog.InfoLevel)
 	switch logLevel {
@@ -52,8 +81,8 @@ func CreateServer(args map[string]commando.ArgValue, flags map[string]commando.F
 
 	var tokenValidator ports.TokenValidator
 	if jwksURL != "" {
-		tokenValidator = jwks.New(jwksURL, 5*time.Minute)
-		logger.Info().Str("jwks", jwksURL).Msg("using JWKS token validator")
+		tokenValidator = jwks.NewValidator(jwksURL, "", refreshDuration)
+		logger.Info().Str("jwks", jwksURL).Str("refresh", jwksRefreshInterval).Msg("using JWKS token validator")
 	} else {
 		tokenValidator = mock.NewAllValidValidator()
 		logger.Warn().Msg("no JWKS URL provided, using mock validator")
@@ -124,7 +153,7 @@ func StartServer(ctx context.Context, listenAddr, dbConnStr string, tlsEnabled b
 	logger.Info().Str("address", listenAddr).Msg("gRPC server configuration")
 
 	if jwksURL != "" {
-		opts = append(opts, grpcsrv.WithJWKSURL(jwksURL))
+		opts = append(opts, grpcsrv.WithJWKSURL(jwksURL, "", 5*time.Minute))
 		logger.Info().Str("jwks", jwksURL).Msg("using JWKS token validation")
 	} else {
 		opts = append(opts, grpcsrv.WithJWTSecret(jwtSecret))

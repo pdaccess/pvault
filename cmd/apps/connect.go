@@ -3,7 +3,6 @@ package apps
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -22,7 +21,6 @@ import (
 	"github.com/thatisuday/commando"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
@@ -83,6 +81,26 @@ func ConnectLogin(args map[string]commando.ArgValue, flags map[string]commando.F
 
 	log.Info().Msgf("Login successful! Token saved to %s\n", tokenPath)
 	log.Info().Msgf("Token expires in %d seconds\n", token.ExpiresIn)
+
+	parts := strings.Split(token.AccessToken, ".")
+	if len(parts) >= 2 {
+		payload := parts[1]
+		padding := 4 - len(payload)%4
+		if padding != 4 {
+			payload += strings.Repeat("=", padding)
+		}
+		decoded, err := base64.URLEncoding.DecodeString(payload)
+		if err == nil {
+			var claims map[string]interface{}
+			json.Unmarshal(decoded, &claims)
+			if username, ok := claims["preferred_username"].(string); ok {
+				log.Info().Msgf("Username: %s\n", username)
+			}
+			if sub, ok := claims["sub"].(string); ok {
+				log.Info().Msgf("User ID: %s\n", sub)
+			}
+		}
+	}
 }
 
 // Helpers for PKCE
@@ -185,142 +203,6 @@ func GetStoredToken() (*oauth2.Token, error) {
 	}
 
 	return &token, nil
-}
-
-func ConnectCommand(args map[string]commando.ArgValue, flags map[string]commando.FlagValue) {
-	serverAddr, _ := flags["address"].GetString()
-	tlsEnabled, _ := flags["tls"].GetBool()
-	token, _ := GetStoredToken()
-
-	var opts []grpc.DialOption
-	if tlsEnabled {
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
-	opts = append(opts, grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")))
-
-	conn, err := grpc.Dial(serverAddr, opts...)
-	if err != nil {
-		log.Info().Msgf("Failed to connect: %v\n", err)
-		return
-	}
-	defer conn.Close()
-
-	client := v1.NewPVaultServiceClient(conn)
-
-	subCmd := args["subcommand"].Value
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	switch subCmd {
-	case "create-vault":
-		vaultID, _ := flags["vault-id"].GetString()
-
-		resp, err := client.CreateVault(withAuth(ctx, token), &v1.CreateVaultRequest{
-			VaultId: vaultID,
-		})
-		if err != nil {
-			log.Info().Msgf("Error: %v\n", err)
-			return
-		}
-		log.Info().Msgf("Success: %v, Message: %s\n", resp.Success, resp.Message)
-
-	case "create-membership":
-		userID, _ := flags["user-id"].GetString()
-		vaultID, _ := flags["vault-id"].GetString()
-		userRootKey, _ := flags["user-root-key"].GetString()
-		role, _ := flags["role"].GetString()
-
-		userRootKeyBytes, err := base64.StdEncoding.DecodeString(userRootKey)
-		if err != nil {
-			log.Info().Msgf("Invalid user-root-key: %v\n", err)
-			return
-		}
-
-		resp, err := client.CreateMembership(withAuth(ctx, token), &v1.CreateMembershipRequest{
-			UserId:      userID,
-			VaultId:     vaultID,
-			UserRootKey: userRootKeyBytes,
-			Role:        role,
-		})
-		if err != nil {
-			log.Info().Msgf("Error: %v\n", err)
-			return
-		}
-		log.Info().Msgf("Success: %v, Message: %s\n", resp.Success, resp.Message)
-
-	case "list-vaults":
-		resp, err := client.ListAuthorizedVaults(withAuth(ctx, token), &v1.ListVaultsRequest{})
-		if err != nil {
-			log.Info().Msgf("Error: %v\n", err)
-			return
-		}
-		log.Info().Msgf("Vault IDs: %v\n", resp.VaultIds)
-
-	case "protect-secret":
-		secretID, _ := flags["secret-id"].GetString()
-		vaultID, _ := flags["vault-id"].GetString()
-		plaintext, _ := flags["plaintext"].GetString()
-		capabilitiesStr, _ := flags["capabilities"].GetString()
-
-		var capabilities []string
-		if capabilitiesStr != "" {
-			capabilities = splitComma(capabilitiesStr)
-		}
-
-		resp, err := client.ProtectSecret(withAuth(ctx, token), &v1.ProtectSecretRequest{
-			SecretId:     secretID,
-			VaultId:      vaultID,
-			Plaintext:    plaintext,
-			Capabilities: capabilities,
-		})
-		if err != nil {
-			log.Info().Msgf("Error: %v\n", err)
-			return
-		}
-		log.Info().Msgf("Success: %v, SecretID: %s\n", resp.Success, resp.SecretId)
-
-	case "uncover-secret":
-		secretID, _ := flags["secret-id"].GetString()
-		action, _ := flags["action"].GetString()
-
-		resp, err := client.UncoverSecret(withAuth(ctx, token), &v1.UncoverSecretRequest{
-			SecretId: secretID,
-			Action:   action,
-		})
-		if err != nil {
-			log.Info().Msgf("Error: %v\n", err)
-			return
-		}
-		log.Info().Msgf("Plaintext: %s\n", resp.Plaintext)
-
-	case "record-audit":
-		sourceService, _ := flags["source-service"].GetString()
-		correlationID, _ := flags["correlation-id"].GetString()
-		eventType, _ := flags["event-type"].GetString()
-		actorID, _ := flags["actor-id"].GetString()
-		actionStatus, _ := flags["action-status"].GetString()
-		payloadJSON, _ := flags["payload-json"].GetString()
-
-		resp, err := client.RecordAuditLog(withAuth(ctx, token), &v1.AuditLogRequest{
-			SourceService: sourceService,
-			CorrelationId: correlationID,
-			EventType:     eventType,
-			ActorId:       actorID,
-			ActionStatus:  actionStatus,
-			PayloadJson:   payloadJSON,
-		})
-		if err != nil {
-			log.Info().Msgf("Error: %v\n", err)
-			return
-		}
-		log.Info().Msgf("AuditID: %d\n", resp.AuditId)
-
-	default:
-		log.Info().Msgf("Unknown subcommand: %s\n", subCmd)
-	}
 }
 
 func ConnectCreateVault(args map[string]commando.ArgValue, flags map[string]commando.FlagValue) {

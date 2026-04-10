@@ -30,15 +30,17 @@ CREATE TABLE IF NOT EXISTS vault.memberships (
 
 -- 2. Secret Values (Blinded Data)
 -- Storage for encrypted payloads.
+-- id + version is the primary key, allowing multiple versions of the same secret.
 CREATE TABLE IF NOT EXISTS vault.secret_values (
-    id                 UUID PRIMARY KEY,
+    id                 UUID NOT NULL,
     vault_id           UUID NOT NULL,
     creator_user_id    UUID NOT NULL,
     ciphertext         BYTEA NOT NULL, 
     wrapped_dek        BYTEA NOT NULL, 
     nonce              BYTEA NOT NULL, 
-    version            INT DEFAULT 1,
-    updated_at         TIMESTAMPTZ DEFAULT NOW()
+    version            INT NOT NULL DEFAULT 1,
+    updated_at         TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, version)
 );
 
 -- 2b. User-Secret Capabilities (Per-User Per-Secret Access Control)
@@ -49,6 +51,19 @@ CREATE TABLE IF NOT EXISTS vault.user_secret_capabilities (
     capabilities  JSONB NOT NULL DEFAULT '["see"]',
     updated_at    TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (user_id, secret_id)
+);
+
+-- 2c. Secret Checkouts (Check-in/Check-out for exclusive access)
+-- Tracks who has checked out a secret for exclusive viewing.
+-- Other users cannot see the secret while checked out unless:
+-- - The checking user checks it back in
+-- - A timeout expires (e.g., 1 hour)
+CREATE TABLE IF NOT EXISTS vault.secret_checkouts (
+    secret_id     UUID NOT NULL,
+    version      INT NOT NULL,
+    user_id      UUID NOT NULL,
+    checked_out_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (secret_id, version)
 );
 
 -- 3. Vault Master Recovery (System-Level Backup)
@@ -83,7 +98,8 @@ CREATE INDEX IF NOT EXISTS idx_vault_membership_user ON vault.memberships(user_i
 CREATE INDEX IF NOT EXISTS idx_vault_secrets_vault ON vault.secret_values(vault_id);
 CREATE INDEX IF NOT EXISTS idx_audit_correlation ON vault.audit_chain(correlation_id);
 CREATE INDEX IF NOT EXISTS idx_user_secret_capabilities_user ON vault.user_secret_capabilities(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_secret_capabilities_secret ON vault.user_secret_capabilities(secret_id);`
+CREATE INDEX IF NOT EXISTS idx_user_secret_capabilities_secret ON vault.user_secret_capabilities(secret_id);
+CREATE INDEX IF NOT EXISTS idx_secret_checkouts_user ON vault.secret_checkouts(user_id);`
 )
 
 func CreateSchema(ctx context.Context, connectionStr string) error {

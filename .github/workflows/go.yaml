@@ -1,0 +1,43 @@
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.26.1'
+
+      # - name: Install test dependencies
+      #   run: |
+      #     go get github.com/onsi/ginkgo/v2/ginkgo/generators@v2.23.3
+      #     go get github.com/onsi/ginkgo/v2/ginkgo/internal@v2.23.3
+      #     go get github.com/onsi/ginkgo/v2/ginkgo/labels@v2.23.3
+      #     go get github.com/onsi/ginkgo/v2@v2.23.3
+      #     go install github.com/onsi/ginkgo/v2/ginkgo@v2.23.3
+
+      - name: Run unit tests
+        run: make unit-tests
+
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build Docker image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          make ci-build
+
+      - name: Push Docker image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          make ci-push

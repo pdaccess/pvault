@@ -59,7 +59,7 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
-    command: ["--db", "postgres://postgres:postgres@postgres:5432/pvault"]
+    command: ["--db", "${PV_DB:-postgres://postgres:postgres@postgres:5432/pvault}", "--jwks", "${PV_JWKS:-http://keycloak:8080/realms/pvault/protocol/openid-connect/certs}"]
 
 volumes:
   postgres_data:

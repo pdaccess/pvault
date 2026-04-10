@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	pgrpc "github.com/pdaccess/pvault/pkg/api/v1"
 )
@@ -140,7 +141,6 @@ func TestSecretUncover(t *testing.T) {
 
 	uncResp, err := client.UncoverSecret(ctx, &pgrpc.UncoverSecretRequest{
 		SecretId: secretID,
-		VaultId:  vaultID,
 		Action:   "see",
 	})
 	if err != nil {
@@ -162,7 +162,6 @@ func TestSecretUncoverWithoutPermission(t *testing.T) {
 
 	resp, err := client.UncoverSecret(ctx, &pgrpc.UncoverSecretRequest{
 		SecretId: "550e8400-e29b-41d4-a716-446655440011",
-		VaultId:  vaultID,
 		Action:   "see",
 	})
 	if err == nil {
@@ -178,7 +177,6 @@ func TestSecretUncoverInvalidSecretID(t *testing.T) {
 
 	resp, err := client.UncoverSecret(ctx, &pgrpc.UncoverSecretRequest{
 		SecretId: "invalid-secret-id",
-		VaultId:  "990e8400-0000-0000-0000-000000000001",
 		Action:   "see",
 	})
 	if err == nil {
@@ -194,7 +192,6 @@ func TestSecretUncoverInvalidVaultID(t *testing.T) {
 
 	resp, err := client.UncoverSecret(ctx, &pgrpc.UncoverSecretRequest{
 		SecretId: "550e8400-e29b-41d4-a716-446655440012",
-		VaultId:  "invalid-vault-id",
 		Action:   "see",
 	})
 	if err == nil {
@@ -210,13 +207,13 @@ func TestSecretUncoverDifferentActions(t *testing.T) {
 	mustCreateVault(t, vaultID, secretAdminUserID)
 
 	ctx := withAuth(context.Background(), secretAdminUserID)
-	actions := []string{"read", "write", "delete", "connect", "admin"}
+	actions := []string{"read", "write", "connect", "admin"}
 
 	for _, action := range actions {
 		_, err := client.UncoverSecret(ctx, &pgrpc.UncoverSecretRequest{
 			SecretId: "550e8400-e29b-41d4-a716-446655440013",
-			VaultId:  vaultID,
-			Action:   action,
+
+			Action: action,
 		})
 		_ = err
 	}
@@ -332,8 +329,8 @@ func TestSecretUncoverWithoutCapability(t *testing.T) {
 	ctxNewUser := withAuth(context.Background(), newUserID)
 	_, err = client.UncoverSecret(ctxNewUser, &pgrpc.UncoverSecretRequest{
 		SecretId: secretID,
-		VaultId:  vaultID,
-		Action:   "see",
+
+		Action: "see",
 	})
 	if err == nil {
 		t.Error("expected error when user has no capabilities on secret")
@@ -388,4 +385,101 @@ func TestAdminUpdateSecretCapabilities(t *testing.T) {
 
 func TestOperatorCannotUpdateCapabilities(t *testing.T) {
 	t.Skip("UpdateSecretCapabilities RPC not yet implemented in proto")
+}
+
+func TestSecretCheckInCheckOut(t *testing.T) {
+	vaultID := uuid.New().String()
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
+	adminCtx := withAuth(context.Background(), secretAdminUserID)
+
+	secretID := uuid.New().String()
+	protResp, err := client.ProtectSecret(adminCtx, &pgrpc.ProtectSecretRequest{
+		SecretId:     secretID,
+		VaultId:      vaultID,
+		Plaintext:    "super-secret-password",
+		Capabilities: []string{"see", "check", "mngt"},
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret failed: %v", err)
+	}
+	if !protResp.Success {
+		t.Fatalf("expected protect success")
+	}
+
+	userAID := "550e8400-e29b-41d4-a716-446655440099"
+	userA := context.WithValue(context.Background(), "user_id", userAID)
+	userA = withAuth(userA, userAID)
+
+	userBID := "660e8400-e29b-41d4-a716-446655440099"
+	userB := context.WithValue(context.Background(), "user_id", userBID)
+	userB = withAuth(userB, userBID)
+
+	_, err = client.CreateMembership(adminCtx, &pgrpc.CreateMembershipRequest{
+		UserId:  userAID,
+		VaultId: vaultID,
+		Role:    "operator",
+	})
+	if err != nil {
+		t.Fatalf("CreateMembership for userA failed: %v", err)
+	}
+
+	_, err = client.CreateMembership(adminCtx, &pgrpc.CreateMembershipRequest{
+		UserId:  userBID,
+		VaultId: vaultID,
+		Role:    "operator",
+	})
+	if err != nil {
+		t.Fatalf("CreateMembership for userB failed: %v", err)
+	}
+
+	_, err = client.UpdateSecretCapabilities(adminCtx, &pgrpc.UpdateSecretCapabilitiesRequest{
+		SecretId:     secretID,
+		UserId:       userAID,
+		Capabilities: []string{"see", "check"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSecretCapabilities for userA failed: %v", err)
+	}
+
+	_, err = client.UpdateSecretCapabilities(adminCtx, &pgrpc.UpdateSecretCapabilitiesRequest{
+		SecretId:     secretID,
+		UserId:       userBID,
+		Capabilities: []string{"see"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSecretCapabilities for userB failed: %v", err)
+	}
+
+	_, err = client.UncoverSecret(userA, &pgrpc.UncoverSecretRequest{
+		SecretId: secretID,
+		Action:   "check",
+	})
+	if err != nil {
+		t.Fatalf("check-in failed: %v", err)
+	}
+
+	_, err = client.UncoverSecret(userB, &pgrpc.UncoverSecretRequest{
+		SecretId: secretID,
+		Action:   "see",
+	})
+	if err == nil {
+		t.Fatal("expected error when accessing checked-out secret, got nil")
+	}
+
+	_, err = client.UncoverSecret(userA, &pgrpc.UncoverSecretRequest{
+		SecretId: secretID,
+		Action:   "check",
+	})
+	if err != nil {
+		t.Fatalf("check-out failed: %v", err)
+	}
+
+	_, err = client.UncoverSecret(userB, &pgrpc.UncoverSecretRequest{
+		SecretId: secretID,
+		Action:   "see",
+	})
+	if err != nil {
+		t.Fatalf("expected to see secret after check-out: %v", err)
+	}
 }

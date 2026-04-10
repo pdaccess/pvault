@@ -16,12 +16,17 @@ type SecretRepository interface {
 
 	// Secret Storage
 	SaveSecret(ctx context.Context, s *domain.SecretValue) error
-	GetSecretValue(ctx context.Context, secretID uuid.UUID) (*domain.SecretValue, error)
+	GetSecret(ctx context.Context, secretID uuid.UUID, version *int) (*domain.SecretValue, error)
 	DeleteSecret(ctx context.Context, secretID uuid.UUID) error
 
 	// User-Secret Capabilities Storage
 	GetUserSecretCapabilities(ctx context.Context, userID, secretID uuid.UUID) (*domain.UserSecretCapabilities, error)
 	SaveUserSecretCapabilities(ctx context.Context, caps *domain.UserSecretCapabilities) error
+
+	// Secret Checkouts (Check-in/Check-out for exclusive access)
+	SaveCheckout(ctx context.Context, checkout *domain.SecretCheckout) error
+	GetCheckout(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretCheckout, error)
+	DeleteCheckout(ctx context.Context, secretID uuid.UUID, version int) error
 
 	// Master/Recovery Storage
 	SaveMasterWrap(ctx context.Context, mw *domain.MasterWrap) error

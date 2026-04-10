@@ -2,18 +2,16 @@ package grpc
 
 import (
 	"context"
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"net"
-	"net/http"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/pdaccess/pvault/internal/adapters/jwks"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	v1 "github.com/pdaccess/pvault/pkg/api/v1"
@@ -63,15 +61,15 @@ type jwksResponse struct {
 }
 
 type Server struct {
-	vaultService ports.VaultService
-	tlsEnabled   bool
-	tlsCertFile  string
-	tlsKeyFile   string
-	listenAddr   string
-	actualAddr   string
-	jwtSecret    []byte // HS256 symmetric key
-	jwksURL      string // RS256 JWKS endpoint; takes precedence over jwtSecret when set
-	grpcServer   *grpc.Server
+	vaultService  ports.VaultService
+	tlsEnabled    bool
+	tlsCertFile   string
+	tlsKeyFile    string
+	listenAddr    string
+	actualAddr    string
+	jwtSecret     []byte              // HS256 symmetric key
+	jwksValidator ports.JWKSValidator // RS256 JWKS validator; takes precedence over jwtSecret when set
+	grpcServer    *grpc.Server
 }
 
 type Option func(*Server)
@@ -99,9 +97,9 @@ func WithJWTSecret(key []byte) Option {
 
 // WithJWKSURL configures the server to validate RS256 JWTs via the given JWKS endpoint.
 // When set, HMAC validation is not used.
-func WithJWKSURL(url string) Option {
+func WithJWKSURL(url string, keyID string, refreshInterval time.Duration) Option {
 	return func(s *Server) {
-		s.jwksURL = url
+		s.jwksValidator = jwks.NewValidator(url, keyID, refreshInterval)
 	}
 }
 
@@ -201,7 +199,7 @@ func (s *Server) extractToken(ctx context.Context) (string, error) {
 
 // parseJWTClaims dispatches to JWKS (RS256) or HMAC (HS256) based on configuration.
 func (s *Server) parseJWTClaims(tokenStr string) (*domain.UserClaims, error) {
-	if s.jwksURL != "" {
+	if s.jwksValidator != nil {
 		return s.parseJWTClaimsJWKS(tokenStr)
 	}
 	return s.parseJWTClaimsHMAC(tokenStr)
@@ -222,54 +220,11 @@ func (s *Server) parseJWTClaimsHMAC(tokenStr string) (*domain.UserClaims, error)
 }
 
 func (s *Server) parseJWTClaimsJWKS(tokenStr string) (*domain.UserClaims, error) {
-	mc := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(tokenStr, &mc, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		kid, _ := token.Header["kid"].(string)
-		return s.fetchJWKSKey(kid)
-	})
+	mc, err := s.jwksValidator.Claims(tokenStr)
 	if err != nil {
 		return nil, err
 	}
 	return extractUserClaims(mc)
-}
-
-// fetchJWKSKey fetches the JWKS from s.jwksURL and returns the RSA public key
-// whose kid matches (or the first RSA key when kid is empty).
-func (s *Server) fetchJWKSKey(kid string) (*rsa.PublicKey, error) {
-	resp, err := http.Get(s.jwksURL)
-	if err != nil {
-		return nil, fmt.Errorf("fetch JWKS: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var keys jwksResponse
-	if err := json.NewDecoder(resp.Body).Decode(&keys); err != nil {
-		return nil, fmt.Errorf("decode JWKS: %w", err)
-	}
-
-	for _, key := range keys.Keys {
-		if key.Kty != "RSA" {
-			continue
-		}
-		if kid != "" && key.Kid != kid {
-			continue
-		}
-		nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
-		if err != nil {
-			continue
-		}
-		eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
-		if err != nil {
-			continue
-		}
-		n := new(big.Int).SetBytes(nBytes)
-		e := int(new(big.Int).SetBytes(eBytes).Int64())
-		return &rsa.PublicKey{N: n, E: e}, nil
-	}
-	return nil, fmt.Errorf("RSA key not found in JWKS (kid=%q)", kid)
 }
 
 // extractUserClaims reads user_uid and user_root_token from JWT map claims.

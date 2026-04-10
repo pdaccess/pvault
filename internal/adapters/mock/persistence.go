@@ -13,6 +13,7 @@ type mockDb struct {
 	secrets     map[uuid.UUID]map[uuid.UUID]*domain.SecretValue
 	masterWraps map[uuid.UUID]*domain.MasterWrap
 	auditLogs   []*domain.AuditEntry
+	checkouts   map[uuid.UUID]map[int]*domain.SecretCheckout
 }
 
 func (m *mockDb) SaveMembership(ctx context.Context, mem *domain.Membership) error {
@@ -72,16 +73,42 @@ func (m *mockDb) SaveSecret(ctx context.Context, s *domain.SecretValue) error {
 	return nil
 }
 
-func (m *mockDb) GetSecretValue(ctx context.Context, secretID uuid.UUID) (*domain.SecretValue, error) {
+func (m *mockDb) GetSecretValue(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretValue, error) {
 	if m.secrets == nil {
 		return nil, nil
 	}
 	for _, vaultSecrets := range m.secrets {
 		if s, ok := vaultSecrets[secretID]; ok {
+			if version > 0 && s.Version != version {
+				continue
+			}
 			return s, nil
 		}
 	}
 	return nil, nil
+}
+
+func (m *mockDb) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID) (int, error) {
+	if m.secrets == nil {
+		return 0, nil
+	}
+	for _, vaultSecrets := range m.secrets {
+		if s, ok := vaultSecrets[secretID]; ok {
+			return s.Version, nil
+		}
+	}
+	return 0, nil
+}
+
+func (m *mockDb) GetSecret(ctx context.Context, secretID uuid.UUID, version *int) (*domain.SecretValue, error) {
+	if version == nil {
+		v, err := m.GetLatestSecretVersion(ctx, secretID)
+		if err != nil {
+			return nil, err
+		}
+		version = &v
+	}
+	return m.GetSecretValue(ctx, secretID, *version)
 }
 
 func (m *mockDb) DeleteSecret(ctx context.Context, secretID uuid.UUID) error {
@@ -98,6 +125,38 @@ func (m *mockDb) GetUserSecretCapabilities(ctx context.Context, userID, secretID
 }
 
 func (m *mockDb) SaveUserSecretCapabilities(ctx context.Context, caps *domain.UserSecretCapabilities) error {
+	return nil
+}
+
+func (m *mockDb) SaveCheckout(ctx context.Context, checkout *domain.SecretCheckout) error {
+	if m.checkouts == nil {
+		m.checkouts = make(map[uuid.UUID]map[int]*domain.SecretCheckout)
+	}
+	if m.checkouts[checkout.SecretID] == nil {
+		m.checkouts[checkout.SecretID] = make(map[int]*domain.SecretCheckout)
+	}
+	m.checkouts[checkout.SecretID][checkout.Version] = checkout
+	return nil
+}
+
+func (m *mockDb) GetCheckout(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretCheckout, error) {
+	if m.checkouts == nil {
+		return nil, domain.ErrNotFound
+	}
+	if versions, ok := m.checkouts[secretID]; ok {
+		if checkout, ok := versions[version]; ok {
+			return checkout, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockDb) DeleteCheckout(ctx context.Context, secretID uuid.UUID, version int) error {
+	if m.checkouts != nil {
+		if versions, ok := m.checkouts[secretID]; ok {
+			delete(versions, version)
+		}
+	}
 	return nil
 }
 

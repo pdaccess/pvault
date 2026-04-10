@@ -27,8 +27,7 @@ service PVaultService {
 // --- Vault Messages ---
 
 message CreateVaultRequest {
-  string vault_id      = 1; // UUID - caller assigned
-  string user_id       = 2; // UUID - the user to add as admin
+  string vault_id = 1; // UUID - caller assigned
 }
 
 message CreateVaultResponse {
@@ -71,15 +70,18 @@ message ProtectSecretRequest {
 message SecretResponse {
   string secret_id = 1;
   bool success = 2;
+  int32 version = 3;
 }
 
 message UncoverSecretRequest {
   string secret_id = 1;
   string action = 2; // e.g., "connect", "see"
+  int32 version = 3; // optional version to uncover
 }
 
 message UncoverSecretResponse {
   string plaintext = 1;
+  int32 version = 2;
 }
 
 message UpdateSecretCapabilitiesRequest {
