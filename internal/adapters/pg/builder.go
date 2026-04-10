@@ -344,3 +344,49 @@ func (p *PgPersistence) GetLastAuditEntry(ctx context.Context) (*domain.AuditEnt
 		UpdatedAt:     e.UpdatedAt,
 	}, nil
 }
+
+func (p *PgPersistence) GetAuditEntries(ctx context.Context, start, limit int, userID, vaultID *uuid.UUID) ([]domain.AuditEntry, error) {
+	query := `SELECT id, source_service, correlation_id, event_type, actor_id, action_status, payload, prev_hmac, curr_hmac, updated_at
+		FROM vault.audit_chain WHERE 1=1`
+	args := []any{}
+
+	if userID != nil {
+		query += fmt.Sprintf(` AND actor_id = $%d`, len(args)+1)
+		args = append(args, *userID)
+	}
+	if vaultID != nil {
+		query += fmt.Sprintf(` AND correlation_id = $%d`, len(args)+1)
+		args = append(args, *vaultID)
+	}
+	query += fmt.Sprintf(` ORDER BY id DESC LIMIT $%d OFFSET $%d`, len(args)+1, len(args)+2)
+	args = append(args, limit, start)
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []domain.AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(&e.ID, &e.SourceService, &e.CorrelationID, &e.EventType, &e.ActorID, &e.ActionStatus, &e.Payload, &e.PrevHMAC, &e.CurrHMAC, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		var payload map[string]any
+		json.Unmarshal(e.Payload, &payload)
+		entries = append(entries, domain.AuditEntry{
+			ID:            e.ID,
+			SourceService: e.SourceService,
+			CorrelationID: e.CorrelationID,
+			EventType:     domain.EventType(e.EventType),
+			ActorID:       e.ActorID,
+			ActionStatus:  e.ActionStatus,
+			Payload:       payload,
+			PrevHMAC:      e.PrevHMAC,
+			CurrHMAC:      e.CurrHMAC,
+			UpdatedAt:     e.UpdatedAt,
+		})
+	}
+	return entries, nil
+}

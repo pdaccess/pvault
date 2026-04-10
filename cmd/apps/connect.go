@@ -444,3 +444,48 @@ func splitComma(s string) []string {
 	}
 	return result
 }
+
+func ConnectGetAuditLogs(args map[string]commando.ArgValue, flags map[string]commando.FlagValue) {
+	serverAddr, _ := flags["address"].GetString()
+	start, _ := flags["start"].GetInt()
+	limit, _ := flags["limit"].GetInt()
+	userID, _ := flags["user-id"].GetString()
+	vaultID, _ := flags["vault-id"].GetString()
+
+	if userID == "-" {
+		userID = ""
+	}
+	if vaultID == "-" {
+		vaultID = ""
+	}
+
+	token, _ := GetStoredToken()
+
+	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Info().Msgf("Failed to connect: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	client := v1.NewPVaultServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := client.GetAuditLogs(withAuth(ctx, token), &v1.GetAuditLogsRequest{
+		Start:   int32(start),
+		Limit:   int32(limit),
+		UserId:  userID,
+		VaultId: vaultID,
+	})
+	if err != nil {
+		log.Info().Msgf("Error: %v\n", err)
+		return
+	}
+
+	log.Info().Msgf("Found %d audit log entries:\n", len(resp.Entries))
+	for _, entry := range resp.Entries {
+		log.Info().Msgf("ID: %d, Service: %s, Event: %s, Actor: %s, Status: %s, Vault: %s\n",
+			entry.Id, entry.SourceService, entry.EventType, entry.ActorId, entry.ActionStatus, entry.CorrelationId)
+	}
+}

@@ -81,7 +81,10 @@ protect-secret:
 	go run ./cmd protect-secret --secret-id "583024bc-f923-44d9-b1ec-4476e8d147d9" --vault-id "d4e1efc2-cf10-4ffd-b35d-69e1f02afa8f" --plaintext "my-secret 2"
 
 uncover-secret:
-	go run ./cmd uncover-secret --secret-id "583024bc-f923-44d9-b1ec-4476e8d147d9" --action check
+	go run ./cmd uncover-secret --secret-id "583024bc-f923-44d9-b1ec-4476e8d147d9" --action see
 
 update-capabilities:
 	go run ./cmd update-secret-capabilities --secret-id "583024bc-f923-44d9-b1ec-4476e8d147d9" --user-id "b2c5011a-5265-4007-ab23-0d0f5191619b" --capabilities "see,write"
+
+audit-logs:
+	go run ./cmd get-audit-logs --start 0 --limit 10

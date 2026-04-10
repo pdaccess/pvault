@@ -53,13 +53,16 @@ services:
     ports:
       - "50051:50051"
     environment:
-      JWT_SECRET: ${JWT_SECRET:-your-32-byte-secret-key-here!!!}
+      PV_STORAGE_KEY: ${PV_STORAGE_KEY:-f25f22f2f3c69a388daca5f9741df530193ee89730c5aefa2f8261081e87521b}
+      PV_LISTEN: ${PV_LISTEN:-:50051}
+      PV_DB: ${PV_DB:-postgres://postgres:postgres@postgres:5432/pvault}
+      PV_JWKS: ${PV_JWKS:-http://keycloak:8080/realms/pvault/protocol/openid-connect/certs}
+      PV_JWKS_REFRESH: ${PV_JWKS_REFRESH:-5m}
     depends_on:
       postgres:
         condition: service_healthy
       keycloak:
         condition: service_healthy
-    command: ["--db", "${PV_DB:-postgres://postgres:postgres@postgres:5432/pvault}", "--jwks", "${PV_JWKS:-http://keycloak:8080/realms/pvault/protocol/openid-connect/certs}"]
 
 volumes:
   postgres_data:

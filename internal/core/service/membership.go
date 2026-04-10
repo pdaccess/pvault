@@ -9,11 +9,14 @@ import (
 	"github.com/pdaccess/pvault/internal/core/domain"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 // --- Membership Operations ---
 
 func (s *Impl) CreateMembership(ctx context.Context, callerID, userID, vaultID uuid.UUID, ku []byte, role domain.VaultRole) error {
+	log.Info().Str("vault_id", vaultID.String()).Str("user_id", userID.String()).Str("role", string(role)).Msg("adding member")
+
 	// Allow caller to self-register as admin (for vault creation)
 	isCreatingOwnAdmin := callerID == userID && role == domain.AdminRole
 
