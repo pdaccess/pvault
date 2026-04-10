@@ -1,0 +1,67 @@
+{
+  "realm": "pvault",
+  "enabled": true,
+  "displayName": "PVault Realm",
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "email": "testuser@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpassword",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "user_root_token": [
+          "a89d6a87bcb821c1463ccac53efadda909bbc7efe6fddf4573b057d18dac0e19"
+        ]
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "pvault-client",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "user-root-token",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "user_root_token",
+            "claim.name": "user_root_token",
+            "jsonType": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "add.to.id.token": "true",
+            "add.to.access.token": "true"
+          }
+        }
+      ],
+      "redirectUris": [
+        "http://localhost:63081/callback"
+      ],
+      "webOrigins": [
+        "*"
+      ],
+      "attributes": {
+        "access.token.lifespan": "300"
+      },
+      "secret": "pvault-client-secret"
+    }
+  ]
+}
