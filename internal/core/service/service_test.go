@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pdaccess/pvault/internal/adapters/hasher"
 	"github.com/pdaccess/pvault/internal/adapters/mock"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/pdaccess/pvault/internal/core/ports"
@@ -142,7 +143,7 @@ func TestMain(m *testing.M) {
 	}
 	var err error
 	logger := zerolog.New(os.Stdout)
-	serviceImpl, err = New(testRepo, mock.NewCryptoService(), logger)
+	serviceImpl, err = New(testRepo, mock.NewCryptoService(), hasher.NewArgon2Hasher(), logger)
 	if err != nil {
 		log.Ctx(ctx).Err(err).Msg("service init")
 		os.Exit(1)

@@ -8,6 +8,15 @@ import "google/protobuf/timestamp.proto";
 
 // Service definition for the Hardened Data Plane
 service PVaultService {
+  // --- Identity & Authentication ---
+  // Unified Auth: Handles Local (Pass) and Brokered (LDAP/OAuth2 via JWKS)
+  rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
+  
+  // User Lifecycle
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc ChangePassword(ChangePasswordRequest) returns (UserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (UserResponse);
+
   // Vault Management
   rpc CreateVault(CreateVaultRequest) returns (CreateVaultResponse);
 
@@ -23,6 +32,61 @@ service PVaultService {
   // Audit Logging
   rpc RecordAuditLog(AuditLogRequest) returns (AuditLogResponse);
   rpc GetAuditLogs(GetAuditLogsRequest) returns (GetAuditLogsResponse);
+}
+
+// --- Identity Messages ---
+
+message AuthorizeRequest {
+  oneof auth_type {
+    LocalAuth local = 1;      // For Username/Password login
+    BrokeredAuth brokered = 2; // For LDAP/OAuth2 via AuthWS signed token
+  }
+}
+
+message LocalAuth {
+  string username = 1;
+  string password = 2;
+}
+
+message BrokeredAuth {
+  string provider = 1;      // e.g., "ldap", "google"
+  string external_id = 2;   // sAMAccountName or OIDC Sub
+  string service_token = 3; // Signed JWT from AuthWS verified via JWKS
+}
+
+message AuthorizeResponse {
+  string user_id = 1;
+  string wrapped_user_root_key = 2; // Ku wrapped for the caller's memory space
+  bool success = 3;
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string password = 2;   // Only for local provider
+  string external_id = 3;  // For LDAP/OAuth mapping
+  string provider = 4;   // 'local', 'ldap', 'google', 'service'
+}
+
+message CreateUserResponse {
+  string user_id = 1;
+  string wrapped_user_root_key = 2;
+  bool success = 3;
+}
+
+message ChangePasswordRequest {
+  string username = 1;
+  string old_password = 2;
+  string new_password = 3;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+  string service_token = 2; // AuthWS must authorize the deletion
+}
+
+message UserResponse {
+  bool success = 1;
+  string message = 2;
 }
 
 // --- Vault Messages ---
@@ -42,8 +106,7 @@ message CreateVaultResponse {
 message CreateMembershipRequest {
   string user_id = 1;      // UUID string
   string vault_id = 2;     // UUID string
-  bytes user_root_key = 3; // Ku (to wrap Kv)
-  string role = 4;
+  string role = 3;
 }
 
 message ListVaultsRequest {

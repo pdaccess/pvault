@@ -86,7 +86,7 @@ func (s *Impl) ListAuthorizedVaults(ctx context.Context, userID uuid.UUID) ([]uu
 	return s.repo.ListVaultIDsByUser(ctx, userID)
 }
 
-func (s *Impl) GetMembershipDetails(ctx context.Context, userID, vaultID uuid.UUID) (*domain.Membership, error) {
+func (s *Impl) getMembershipDetails(ctx context.Context, userID, vaultID uuid.UUID) (*domain.Membership, error) {
 	return s.repo.GetMembership(ctx, userID, vaultID)
 }
 

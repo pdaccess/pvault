@@ -88,3 +88,9 @@ update-capabilities:
 
 audit-logs:
 	go run ./cmd get-audit-logs --start 0 --limit 10
+
+authorize:
+	go run ./cmd authorize --username test --password password test
+
+create-user:
+	go run ./cmd create-user --username test --password password test

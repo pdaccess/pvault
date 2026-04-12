@@ -52,3 +52,16 @@ type AuditEntry struct {
 	CurrHMAC      []byte    `db:"curr_hmac" json:"-"`
 	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
 }
+
+type IdentityRow struct {
+	InternalID    uuid.UUID `db:"internal_id"`
+	Provider      string    `db:"provider"`
+	LocalUsername *string   `db:"local_username"`
+	PasswordHash  *string   `db:"password_hash"`
+	ExternalID    *string   `db:"external_id"`
+	WrappedKU     []byte    `db:"wrapped_ku"`
+	KUNonce       []byte    `db:"ku_nonce"`
+	IsActive      bool      `db:"is_active"`
+	CreatedAt     time.Time `db:"created_at"`
+	UpdatedAt     time.Time `db:"updated_at"`
+}

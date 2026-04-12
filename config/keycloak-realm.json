@@ -17,8 +17,11 @@
         }
       ],
       "attributes": {
-        "user_root_token": [
+        "x-urk": [
           "a89d6a87bcb821c1463ccac53efadda909bbc7efe6fddf4573b057d18dac0e19"
+        ],
+        "x-tpk": [
+          "04e7f31c1c2d85324bce89ea997f6031f237a7f402afb6588e24a4f15c7e1e6d97840b81e1357b754e47dec39de79dc34dbcbd9d2aebdfb83cd63a8863bf0547f6"
         ]
       }
     }
@@ -36,13 +39,29 @@
       "fullScopeAllowed": true,
       "protocolMappers": [
         {
-          "name": "user-root-token",
+          "name": "x-urk",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-attribute-mapper",
           "consentRequired": false,
           "config": {
-            "user.attribute": "user_root_token",
-            "claim.name": "user_root_token",
+            "user.attribute": "x-urk",
+            "claim.name": "x-urk",
+            "jsonType": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "add.to.id.token": "true",
+            "add.to.access.token": "true"
+          }
+        },
+        {
+          "name": "x-tpk",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "x-tpk",
+            "claim.name": "x-tpk",
             "jsonType": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",

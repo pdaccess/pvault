@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -80,4 +83,38 @@ func (s *aesGcmService) Encrypt(plaintext, key []byte) (ciphertext []byte, nonce
 // GetServiceMasterKey implements [ports.CryptoService].
 func (s *aesGcmService) GetServiceMasterKey() []byte {
 	return s.masterKey
+}
+
+func (s *aesGcmService) WrapForTransit(secret []byte, recipientPubKeyBytes []byte) (string, error) {
+	remotePubKey, err := ecdh.P256().NewPublicKey(recipientPubKeyBytes)
+	if err != nil {
+		return "", fmt.Errorf("invalid recipient public key: %w", err)
+	}
+
+	ephemeralPriv, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		return "", err
+	}
+
+	sharedSecret, err := ephemeralPriv.ECDH(remotePubKey)
+	if err != nil {
+		return "", err
+	}
+
+	aesKey := sha256.Sum256(sharedSecret)
+
+	block, _ := aes.NewCipher(aesKey[:])
+	aesgcm, _ := cipher.NewGCM(block)
+
+	nonce := make([]byte, aesgcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := aesgcm.Seal(nil, nonce, secret, nil)
+
+	result := append(ephemeralPriv.PublicKey().Bytes(), nonce...)
+	result = append(result, ciphertext...)
+
+	return hex.EncodeToString(result), nil
 }

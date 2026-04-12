@@ -390,3 +390,59 @@ func (p *PgPersistence) GetAuditEntries(ctx context.Context, start, limit int, u
 	}
 	return entries, nil
 }
+
+func (p *PgPersistence) SaveIdentity(ctx context.Context, identity *domain.Identity) error {
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO vault.identities (internal_id, provider, local_username, password_hash, external_id, wrapped_ku, ku_nonce, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (internal_id) DO UPDATE SET provider=$2, local_username=$3, password_hash=$4, external_id=$5, wrapped_ku=$6, ku_nonce=$7, is_active=$8, updated_at=NOW()`,
+		identity.InternalID, identity.Provider, identity.LocalUsername, identity.PasswordHash, identity.ExternalID, identity.WrappedKU, identity.KUNonce, identity.IsActive)
+	return err
+}
+
+func (p *PgPersistence) GetIdentity(ctx context.Context, opts ...ports.IdentityOption) (*domain.Identity, error) {
+	q := &ports.IdentityQuery{}
+	for _, opt := range opts {
+		opt(q)
+	}
+
+	query := `SELECT internal_id, provider, local_username, password_hash, external_id, wrapped_ku, ku_nonce, is_active, created_at, updated_at FROM vault.identities WHERE 1=1`
+	args := []any{}
+
+	if q.ID != nil {
+		query += fmt.Sprintf(" AND internal_id = $%d", len(args)+1)
+		args = append(args, *q.ID)
+	}
+	if q.Provider != nil {
+		query += fmt.Sprintf(" AND provider = $%d", len(args)+1)
+		args = append(args, *q.Provider)
+	}
+	if q.ExternalID != nil && *q.ExternalID != "" {
+		query += fmt.Sprintf(" AND external_id = $%d", len(args)+1)
+		args = append(args, *q.ExternalID)
+	}
+
+	query += " LIMIT 1"
+
+	var row IdentityRow
+	err := p.db.GetContext(ctx, &row, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return rowToIdentity(row), nil
+}
+
+func rowToIdentity(row IdentityRow) *domain.Identity {
+	return &domain.Identity{
+		InternalID:    row.InternalID,
+		Provider:      domain.IdentityProvider(row.Provider),
+		LocalUsername: row.LocalUsername,
+		PasswordHash:  row.PasswordHash,
+		ExternalID:    row.ExternalID,
+		WrappedKU:     row.WrappedKU,
+		KUNonce:       row.KUNonce,
+		IsActive:      row.IsActive,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+	}
+}

@@ -130,5 +130,19 @@ func main() {
 		AddFlag("capabilities", "Capabilities (comma-separated)", commando.String, "").
 		SetAction(apps.ConnectUpdateSecretCapabilities)
 
+	commando.Register("authorize").
+		AddFlag("address,a", "Server address", commando.String, "localhost:50051").
+		AddFlag("tls", "Enable TLS", commando.Bool, false).
+		AddFlag("username", "Username", commando.String, "").
+		AddFlag("password", "Password", commando.String, "").
+		SetAction(apps.Authorize)
+
+	commando.Register("create-user").
+		AddFlag("address,a", "Server address", commando.String, "localhost:50051").
+		AddFlag("tls", "Enable TLS", commando.Bool, false).
+		AddFlag("username", "Username", commando.String, "").
+		AddFlag("password", "Password", commando.String, "").
+		SetAction(apps.CreateUser)
+
 	commando.Parse(nil)
 }

@@ -10,6 +10,7 @@ import (
 )
 
 func TestSecret(t *testing.T) {
+	t.Parallel()
 	backend, err := New(connectionStr)
 
 	if err != nil {
@@ -50,6 +51,7 @@ func TestSecret(t *testing.T) {
 }
 
 func TestAudit(t *testing.T) {
+	t.Parallel()
 	backend, err := New(connectionStr)
 
 	if err != nil {
