@@ -7,10 +7,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pdaccess/pvault/internal/core/domain"
+	"github.com/rs/zerolog/log"
 )
 
 // --- Audit & System ---
+
+func (s *Impl) GetAuditEntries(ctx context.Context, start, limit int, userID, vaultID *uuid.UUID) ([]domain.AuditEntry, error) {
+	log.Info().Int("start", start).Int("limit", limit).Msg("searching audit logs")
+	return s.repo.GetAuditEntries(ctx, start, limit, userID, vaultID)
+}
 
 func (s *Impl) RecordAudit(ctx context.Context, entry *domain.AuditEntry) error {
 	// 1. Fetch the last entry to get the previous HMAC

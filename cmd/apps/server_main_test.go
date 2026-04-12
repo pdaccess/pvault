@@ -2,7 +2,9 @@ package apps_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
+	"os"
 	"testing"
 	"time"
 
@@ -55,6 +57,10 @@ func withAuth(ctx context.Context, userID string) context.Context {
 }
 
 func TestMain(m *testing.M) {
+	storageKey := make([]byte, 32)
+	rand.Read(storageKey)
+	os.Setenv("PV_STORAGE_KEY", hex.EncodeToString(storageKey))
+
 	ctx := context.Background()
 
 	dbName := "pvault"

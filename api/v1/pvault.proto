@@ -22,6 +22,7 @@ service PVaultService {
 
   // Audit Logging
   rpc RecordAuditLog(AuditLogRequest) returns (AuditLogResponse);
+  rpc GetAuditLogs(GetAuditLogsRequest) returns (GetAuditLogsResponse);
 }
 
 // --- Vault Messages ---
@@ -104,4 +105,26 @@ message AuditLogRequest {
 message AuditLogResponse {
   int64 audit_id = 1;
   bytes curr_hmac = 2; // For verification acknowledgment
+}
+
+message GetAuditLogsRequest {
+  int32 start = 1;
+  int32 limit = 2;
+  string user_id = 3;
+  string vault_id = 4;
+}
+
+message GetAuditLogsResponse {
+  repeated AuditLogEntry entries = 1;
+}
+
+message AuditLogEntry {
+  int64 id = 1;
+  string source_service = 2;
+  string correlation_id = 3;
+  string event_type = 4;
+  string actor_id = 5;
+  string action_status = 6;
+  string payload_json = 7;
+  int64 updated_at = 8;
 }

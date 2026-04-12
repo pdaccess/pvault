@@ -26,14 +26,18 @@ func main() {
 		SetDescription("PVault CLI")
 
 	commando.Register(nil).
-		AddFlag("listen,l", "listen address", commando.String, ":50051").
-		AddFlag("db,d", "PostgreSQL connection string", commando.String, "").
-		AddFlag("tls,t", "Enable TLS", commando.Bool, false).
-		AddFlag("tls-cert", "TLS certificate file", commando.String, "cert/server.crt").
-		AddFlag("tls-key", "TLS key file", commando.String, "cert/server.key").
-		AddFlag("log-level,v", "Log level (debug, info, warn, error)", commando.String, "info").
-		AddFlag("jwks", "JWKS URL for RS256 token validation", commando.String, "http://keycloak:8080/realms/pvault/protocol/openid-connect/certs").
+		SetShortDescription("Start PVault server").
 		SetAction(apps.CreateServer)
+
+	commando.Register("get-audit-logs").
+		SetShortDescription("Get audit logs").
+		AddFlag("address,a", "Server address", commando.String, "localhost:50051").
+		AddFlag("tls", "Enable TLS", commando.Bool, false).
+		AddFlag("start", "Start offset", commando.Int, 0).
+		AddFlag("limit", "Limit", commando.Int, 10).
+		AddFlag("user-id", "User ID (UUID)", commando.String, "-").
+		AddFlag("vault-id", "Vault ID (UUID)", commando.String, "-").
+		SetAction(apps.ConnectGetAuditLogs)
 
 	commando.Register("login").
 		SetShortDescription("Login to Keycloak and save token").

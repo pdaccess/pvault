@@ -11,11 +11,14 @@ import (
 	"github.com/pdaccess/pvault/internal/core/domain"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 // --- Secret Operations ---
 
 func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, plaintext string, defaultCapabilities domain.Capabilities) error {
+	log.Info().Str("secret_id", secretID.String()).Str("vault_id", vaultID.String()).Msg("protecting secret")
+
 	if err := defaultCapabilities.Validate(); err != nil {
 		return fmt.Errorf("invalid capabilities: %w", err)
 	}
@@ -119,6 +122,8 @@ func (s *Impl) ProtectSecret(ctx context.Context, callerID, secretID, vaultID uu
 }
 
 func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, action domain.Capability, version *int) (string, int, error) {
+	log.Info().Str("secret_id", secretID.String()).Str("action", string(action)).Msg("uncovering secret")
+
 	userCaps, err := s.repo.GetUserSecretCapabilities(ctx, callerID, secretID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {

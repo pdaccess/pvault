@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -199,4 +200,39 @@ func (h *Handler) RecordAuditLog(ctx context.Context, req *v1.AuditLogRequest) (
 	}
 
 	return &v1.AuditLogResponse{AuditId: 1, CurrHmac: entry.CurrHMAC}, nil
+}
+
+func (h *Handler) GetAuditLogs(ctx context.Context, req *v1.GetAuditLogsRequest) (*v1.GetAuditLogsResponse, error) {
+	var userID, vaultID *uuid.UUID
+	if req.UserId != "" {
+		if parsed, err := uuid.Parse(req.UserId); err == nil {
+			userID = &parsed
+		}
+	}
+	if req.VaultId != "" {
+		if parsed, err := uuid.Parse(req.VaultId); err == nil {
+			vaultID = &parsed
+		}
+	}
+
+	entries, err := h.vaultService.GetAuditEntries(ctx, int(req.Start), int(req.Limit), userID, vaultID)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []*v1.AuditLogEntry
+	for _, e := range entries {
+		payload, _ := json.Marshal(e.Payload)
+		result = append(result, &v1.AuditLogEntry{
+			Id:            e.ID,
+			SourceService: e.SourceService,
+			CorrelationId: e.CorrelationID.String(),
+			EventType:     string(e.EventType),
+			ActorId:       e.ActorID.String(),
+			ActionStatus:  e.ActionStatus,
+			PayloadJson:   string(payload),
+			UpdatedAt:     e.UpdatedAt.Unix(),
+		})
+	}
+	return &v1.GetAuditLogsResponse{Entries: result}, nil
 }

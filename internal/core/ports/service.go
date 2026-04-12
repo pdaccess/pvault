@@ -24,5 +24,6 @@ type VaultService interface {
 
 	// System & Audit
 	RecordAudit(ctx context.Context, entry *domain.AuditEntry) error
+	GetAuditEntries(ctx context.Context, start, limit int, userID, vaultID *uuid.UUID) ([]domain.AuditEntry, error)
 	RotateVaultKey(ctx context.Context, vaultID uuid.UUID) error
 }
