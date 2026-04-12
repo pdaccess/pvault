@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -91,7 +90,7 @@ func ConnectLogin(args map[string]commando.ArgValue, flags map[string]commando.F
 		}
 		decoded, err := base64.URLEncoding.DecodeString(payload)
 		if err == nil {
-			var claims map[string]interface{}
+			var claims map[string]any
 			json.Unmarshal(decoded, &claims)
 			if username, ok := claims["preferred_username"].(string); ok {
 				log.Info().Msgf("Username: %s\n", username)
@@ -236,14 +235,7 @@ func ConnectCreateMembership(args map[string]commando.ArgValue, flags map[string
 	token, _ := GetStoredToken()
 	userID, _ := flags["user-id"].GetString()
 	vaultID, _ := flags["vault-id"].GetString()
-	userRootKey, _ := flags["user-root-key"].GetString()
 	role, _ := flags["role"].GetString()
-
-	userRootKeyBytes, err := hex.DecodeString(userRootKey)
-	if err != nil {
-		log.Info().Msgf("Invalid user-root-key: %v\n", err)
-		return
-	}
 
 	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -257,10 +249,9 @@ func ConnectCreateMembership(args map[string]commando.ArgValue, flags map[string
 	defer cancel()
 
 	resp, err := client.CreateMembership(withAuth(ctx, token), &v1.CreateMembershipRequest{
-		UserId:      userID,
-		VaultId:     vaultID,
-		UserRootKey: userRootKeyBytes,
-		Role:        role,
+		UserId:  userID,
+		VaultId: vaultID,
+		Role:    role,
 	})
 	if err != nil {
 		log.Info().Msgf("Error: %v\n", err)
@@ -488,4 +479,79 @@ func ConnectGetAuditLogs(args map[string]commando.ArgValue, flags map[string]com
 		log.Info().Msgf("ID: %d, Service: %s, Event: %s, Actor: %s, Status: %s, Vault: %s\n",
 			entry.Id, entry.SourceService, entry.EventType, entry.ActorId, entry.ActionStatus, entry.CorrelationId)
 	}
+}
+
+func Authorize(args map[string]commando.ArgValue, flags map[string]commando.FlagValue) {
+	serverAddr, _ := flags["address"].GetString()
+	username, _ := flags["username"].GetString()
+	password, _ := flags["password"].GetString()
+
+	token, _ := GetStoredToken()
+
+	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Info().Msgf("Failed to connect: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	client := v1.NewPVaultServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := client.Authorize(withAuth(ctx, token), &v1.AuthorizeRequest{
+		AuthType: &v1.AuthorizeRequest_Local{
+			Local: &v1.LocalAuth{
+				Username: username,
+				Password: password,
+			},
+		},
+	})
+	if err != nil {
+		log.Info().Msgf("Error: %v\n", err)
+		return
+	}
+
+	if resp.GetSuccess() {
+		log.Info().Msgf("Authenticated: %s wrapped_ku: %s", resp.GetUserId(), resp.GetWrappedUserRootKey())
+	} else {
+		log.Info().Msgf("Authentication Failed: %t", resp.GetSuccess())
+	}
+
+}
+
+func CreateUser(args map[string]commando.ArgValue, flags map[string]commando.FlagValue) {
+	serverAddr, _ := flags["address"].GetString()
+	username, _ := flags["username"].GetString()
+	password, _ := flags["password"].GetString()
+
+	token, _ := GetStoredToken()
+
+	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Info().Msgf("Failed to connect: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	client := v1.NewPVaultServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := client.CreateUser(withAuth(ctx, token), &v1.CreateUserRequest{
+		Username: username,
+		Password: password,
+		Provider: "local",
+	})
+	if err != nil {
+		log.Info().Msgf("Error: %v\n", err)
+		return
+	}
+
+	if resp.GetSuccess() {
+		log.Info().Msgf("Create-User: %s wrapped_ku: %s\n", resp.GetUserId(), resp.GetWrappedUserRootKey())
+	} else {
+		log.Info().Msgf("Create-User Failed: %t\n", resp.GetSuccess())
+	}
+
 }

@@ -14,6 +14,7 @@ type mockDb struct {
 	masterWraps map[uuid.UUID]*domain.MasterWrap
 	auditLogs   []*domain.AuditEntry
 	checkouts   map[uuid.UUID]map[int]*domain.SecretCheckout
+	identities  map[uuid.UUID]*domain.Identity
 }
 
 func (m *mockDb) SaveMembership(ctx context.Context, mem *domain.Membership) error {
@@ -206,6 +207,37 @@ func (m *mockDb) GetAuditEntries(ctx context.Context, start, limit int, userID, 
 		limit = len(result) - start
 	}
 	return result[start : start+limit], nil
+}
+
+func (m *mockDb) SaveIdentity(ctx context.Context, identity *domain.Identity) error {
+	if m.identities == nil {
+		m.identities = make(map[uuid.UUID]*domain.Identity)
+	}
+	m.identities[identity.InternalID] = identity
+	return nil
+}
+
+func (m *mockDb) GetIdentity(ctx context.Context, opts ...ports.IdentityOption) (*domain.Identity, error) {
+	q := &ports.IdentityQuery{}
+	for _, opt := range opts {
+		opt(q)
+	}
+
+	for _, identity := range m.identities {
+		if q.ID != nil && identity.InternalID != *q.ID {
+			continue
+		}
+		if q.Provider != nil && identity.Provider != *q.Provider {
+			continue
+		}
+		if q.ExternalID != nil && *q.ExternalID != "" {
+			if identity.ExternalID == nil || *identity.ExternalID != *q.ExternalID {
+				continue
+			}
+		}
+		return identity, nil
+	}
+	return nil, domain.ErrNotFound
 }
 
 func New() ports.SecretRepository {

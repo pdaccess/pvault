@@ -2,6 +2,7 @@ package apps_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -54,15 +55,15 @@ func TestSecretProtectLongPlaintext(t *testing.T) {
 	mustCreateVault(t, vaultID, secretAdminUserID)
 
 	ctx := withAuth(context.Background(), secretAdminUserID)
-	longPlaintext := ""
-	for i := 0; i < 1000; i++ {
-		longPlaintext += "a"
+	var longPlaintext strings.Builder
+	for range 1000 {
+		longPlaintext.WriteString("a")
 	}
 
 	resp, err := client.ProtectSecret(ctx, &pgrpc.ProtectSecretRequest{
 		SecretId:  "550e8400-e29b-41d4-a716-446655440003",
 		VaultId:   vaultID,
-		Plaintext: longPlaintext,
+		Plaintext: longPlaintext.String(),
 	})
 	if err != nil {
 		t.Fatalf("ProtectSecret failed: %v", err)

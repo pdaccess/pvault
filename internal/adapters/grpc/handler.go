@@ -2,14 +2,17 @@ package grpc
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	v1 "github.com/pdaccess/pvault/pkg/api/v1"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -22,16 +25,106 @@ func NewHandler(vaultService ports.VaultService) *Handler {
 	return &Handler{vaultService: vaultService}
 }
 
-// callerFromContext extracts the authenticated caller's UUID and root key from
-// the context values set by the JWT auth interceptor.
-// Returns nil for userRootKey if not available (e.g., for Keycloak tokens).
-func callerFromContext(ctx context.Context) (uuid.UUID, []byte, error) {
+func extractTransitPubKeyFromJWT(ctx context.Context) ([]byte, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, nil
+	}
+
+	authHeader := md.Get("authorization")
+	if len(authHeader) == 0 || authHeader[0] == "" {
+		return nil, nil
+	}
+
+	tokenStr := authHeader[0]
+	if len(tokenStr) > 7 && tokenStr[:7] == "Bearer " {
+		tokenStr = tokenStr[7:]
+	}
+
+	mc := jwt.MapClaims{}
+	_, _, err := jwt.NewParser().ParseUnverified(tokenStr, mc)
+	if err != nil {
+		return nil, err
+	}
+
+	tpkStr, _ := mc["x-tpk"].(string)
+	if tpkStr == "" {
+		return nil, nil
+	}
+
+	return hex.DecodeString(tpkStr)
+}
+
+func (h *Handler) Authorize(ctx context.Context, req *v1.AuthorizeRequest) (*v1.AuthorizeResponse, error) {
+	var username, password, externalID string
+	var provider domain.IdentityProvider = domain.ProviderLocal
+
+	if req.GetLocal() != nil {
+		username = req.GetLocal().Username
+		password = req.GetLocal().Password
+		provider = domain.ProviderLocal
+	} else if req.GetBrokered() != nil {
+		provider = domain.IdentityProvider(req.GetBrokered().Provider)
+		externalID = req.GetBrokered().ExternalId
+	}
+
+	transitPubKey, _ := extractTransitPubKeyFromJWT(ctx)
+	userID, wrappedKU, err := h.vaultService.Authorize(ctx, provider, username, password, externalID, transitPubKey)
+	if err != nil {
+		return &v1.AuthorizeResponse{Success: false}, err
+	}
+
+	return &v1.AuthorizeResponse{
+		UserId:             userID,
+		WrappedUserRootKey: wrappedKU,
+		Success:            true,
+	}, nil
+}
+
+func (h *Handler) CreateUser(ctx context.Context, req *v1.CreateUserRequest) (*v1.CreateUserResponse, error) {
+	provider := domain.IdentityProvider(req.Provider)
+
+	transitPubKey, _ := extractTransitPubKeyFromJWT(ctx)
+	userID, wrappedKU, err := h.vaultService.CreateUser(ctx, req.Username, req.Password, req.GetExternalId(), provider, transitPubKey)
+	if err != nil {
+		return &v1.CreateUserResponse{Success: false}, err
+	}
+
+	return &v1.CreateUserResponse{
+		UserId:             userID,
+		WrappedUserRootKey: wrappedKU,
+		Success:            true,
+	}, nil
+}
+
+func (h *Handler) ChangePassword(ctx context.Context, req *v1.ChangePasswordRequest) (*v1.UserResponse, error) {
+	return &v1.UserResponse{Success: false, Message: "not implemented"}, nil
+}
+
+func (h *Handler) DeleteUser(ctx context.Context, req *v1.DeleteUserRequest) (*v1.UserResponse, error) {
+	userID, err := uuid.Parse(req.UserId)
+	if err != nil {
+		return &v1.UserResponse{Success: false, Message: "invalid user_id"}, err
+	}
+
+	if err := h.vaultService.DeleteUser(ctx, userID); err != nil {
+		return &v1.UserResponse{Success: false, Message: err.Error()}, err
+	}
+
+	return &v1.UserResponse{Success: true, Message: "user deleted"}, nil
+}
+
+// callerFromContext extracts the authenticated caller's UUID, root key, and transit
+// public key from the context values set by the JWT auth interceptor.
+// Returns nil for userRootKey/transitPubKey if not available.
+func callerFromContext(ctx context.Context) (uuid.UUID, []byte, []byte, error) {
 	userID, ok := ctx.Value(domain.ContextKeyUserID).(uuid.UUID)
 	if !ok {
-		return uuid.Nil, nil, fmt.Errorf("user_id not in context")
+		return uuid.Nil, nil, nil, fmt.Errorf("user_id not in context")
 	}
 	userRootKey, _ := ctx.Value(domain.ContextKeyUserRootKey).([]byte)
-	return userID, userRootKey, nil
+	transitPubKey, _ := ctx.Value(domain.ContextKeyTransitPublicKey).([]byte)
+	return userID, userRootKey, transitPubKey, nil
 }
 
 func (h *Handler) CreateVault(ctx context.Context, req *v1.CreateVaultRequest) (*v1.CreateVaultResponse, error) {
@@ -40,7 +133,7 @@ func (h *Handler) CreateVault(ctx context.Context, req *v1.CreateVaultRequest) (
 		return &v1.CreateVaultResponse{Success: false, Message: "invalid vault_id"}, err
 	}
 
-	userID, userRootKey, err := callerFromContext(ctx)
+	userID, userRootKey, _, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.CreateVaultResponse{Success: false, Message: "unauthenticated"}, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -62,7 +155,7 @@ func (h *Handler) CreateMembership(ctx context.Context, req *v1.CreateMembership
 		return &v1.MembershipResponse{Success: false, Message: "invalid vault_id"}, err
 	}
 
-	callerID, userRootKey, err := callerFromContext(ctx)
+	callerID, userRootKey, _, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.MembershipResponse{Success: false, Message: "unauthenticated"}, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -76,7 +169,7 @@ func (h *Handler) CreateMembership(ctx context.Context, req *v1.CreateMembership
 }
 
 func (h *Handler) ListAuthorizedVaults(ctx context.Context, req *v1.ListVaultsRequest) (*v1.ListVaultsResponse, error) {
-	userID, _, err := callerFromContext(ctx)
+	userID, _, _, err := callerFromContext(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -104,7 +197,7 @@ func (h *Handler) ProtectSecret(ctx context.Context, req *v1.ProtectSecretReques
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, err
 	}
 
-	callerID, _, err := callerFromContext(ctx)
+	callerID, _, _, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -136,7 +229,7 @@ func (h *Handler) UncoverSecret(ctx context.Context, req *v1.UncoverSecretReques
 		return &v1.UncoverSecretResponse{Plaintext: ""}, err
 	}
 
-	callerID, _, err := callerFromContext(ctx)
+	callerID, _, _, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.UncoverSecretResponse{Plaintext: ""}, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -166,7 +259,7 @@ func (h *Handler) UpdateSecretCapabilities(ctx context.Context, req *v1.UpdateSe
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, err
 	}
 
-	callerID, _, err := callerFromContext(ctx)
+	callerID, _, _, err := callerFromContext(ctx)
 	if err != nil {
 		return &v1.SecretResponse{Success: false, SecretId: req.SecretId}, status.Error(codes.Unauthenticated, err.Error())
 	}

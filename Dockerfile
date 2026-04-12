@@ -7,7 +7,7 @@ RUN GOTOOLCHAIN=auto go mod download
 
 COPY . .
 
-RUN GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o pvault ./cmd
+RUN GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-s -w -X 'main.Commit=${COMMIT_TXT}' -X 'main.BuildTime=${BUILD_DATE}' -X 'main.BuildEnv=${BUILD_ENV}'" -o pvault ./cmd
 
 FROM alpine:3.19
 

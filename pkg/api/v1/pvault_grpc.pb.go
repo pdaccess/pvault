@@ -18,6 +18,13 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PVaultServiceClient interface {
+	// --- Identity & Authentication ---
+	// Unified Auth: Handles Local (Pass) and Brokered (LDAP/OAuth2 via JWKS)
+	Authorize(ctx context.Context, in *AuthorizeRequest, opts ...grpc.CallOption) (*AuthorizeResponse, error)
+	// User Lifecycle
+	CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*CreateUserResponse, error)
+	ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*UserResponse, error)
+	DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*UserResponse, error)
 	// Vault Management
 	CreateVault(ctx context.Context, in *CreateVaultRequest, opts ...grpc.CallOption) (*CreateVaultResponse, error)
 	// Membership Management
@@ -38,6 +45,42 @@ type pVaultServiceClient struct {
 
 func NewPVaultServiceClient(cc grpc.ClientConnInterface) PVaultServiceClient {
 	return &pVaultServiceClient{cc}
+}
+
+func (c *pVaultServiceClient) Authorize(ctx context.Context, in *AuthorizeRequest, opts ...grpc.CallOption) (*AuthorizeResponse, error) {
+	out := new(AuthorizeResponse)
+	err := c.cc.Invoke(ctx, "/pvault.v1.PVaultService/Authorize", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pVaultServiceClient) CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*CreateUserResponse, error) {
+	out := new(CreateUserResponse)
+	err := c.cc.Invoke(ctx, "/pvault.v1.PVaultService/CreateUser", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pVaultServiceClient) ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*UserResponse, error) {
+	out := new(UserResponse)
+	err := c.cc.Invoke(ctx, "/pvault.v1.PVaultService/ChangePassword", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pVaultServiceClient) DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*UserResponse, error) {
+	out := new(UserResponse)
+	err := c.cc.Invoke(ctx, "/pvault.v1.PVaultService/DeleteUser", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *pVaultServiceClient) CreateVault(ctx context.Context, in *CreateVaultRequest, opts ...grpc.CallOption) (*CreateVaultResponse, error) {
@@ -116,6 +159,13 @@ func (c *pVaultServiceClient) GetAuditLogs(ctx context.Context, in *GetAuditLogs
 // All implementations must embed UnimplementedPVaultServiceServer
 // for forward compatibility
 type PVaultServiceServer interface {
+	// --- Identity & Authentication ---
+	// Unified Auth: Handles Local (Pass) and Brokered (LDAP/OAuth2 via JWKS)
+	Authorize(context.Context, *AuthorizeRequest) (*AuthorizeResponse, error)
+	// User Lifecycle
+	CreateUser(context.Context, *CreateUserRequest) (*CreateUserResponse, error)
+	ChangePassword(context.Context, *ChangePasswordRequest) (*UserResponse, error)
+	DeleteUser(context.Context, *DeleteUserRequest) (*UserResponse, error)
 	// Vault Management
 	CreateVault(context.Context, *CreateVaultRequest) (*CreateVaultResponse, error)
 	// Membership Management
@@ -135,6 +185,18 @@ type PVaultServiceServer interface {
 type UnimplementedPVaultServiceServer struct {
 }
 
+func (UnimplementedPVaultServiceServer) Authorize(context.Context, *AuthorizeRequest) (*AuthorizeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Authorize not implemented")
+}
+func (UnimplementedPVaultServiceServer) CreateUser(context.Context, *CreateUserRequest) (*CreateUserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateUser not implemented")
+}
+func (UnimplementedPVaultServiceServer) ChangePassword(context.Context, *ChangePasswordRequest) (*UserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangePassword not implemented")
+}
+func (UnimplementedPVaultServiceServer) DeleteUser(context.Context, *DeleteUserRequest) (*UserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteUser not implemented")
+}
 func (UnimplementedPVaultServiceServer) CreateVault(context.Context, *CreateVaultRequest) (*CreateVaultResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateVault not implemented")
 }
@@ -170,6 +232,78 @@ type UnsafePVaultServiceServer interface {
 
 func RegisterPVaultServiceServer(s grpc.ServiceRegistrar, srv PVaultServiceServer) {
 	s.RegisterService(&PVaultService_ServiceDesc, srv)
+}
+
+func _PVaultService_Authorize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthorizeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PVaultServiceServer).Authorize(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pvault.v1.PVaultService/Authorize",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PVaultServiceServer).Authorize(ctx, req.(*AuthorizeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PVaultService_CreateUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PVaultServiceServer).CreateUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pvault.v1.PVaultService/CreateUser",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PVaultServiceServer).CreateUser(ctx, req.(*CreateUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PVaultService_ChangePassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangePasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PVaultServiceServer).ChangePassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pvault.v1.PVaultService/ChangePassword",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PVaultServiceServer).ChangePassword(ctx, req.(*ChangePasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PVaultService_DeleteUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PVaultServiceServer).DeleteUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pvault.v1.PVaultService/DeleteUser",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PVaultServiceServer).DeleteUser(ctx, req.(*DeleteUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _PVaultService_CreateVault_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -323,6 +457,22 @@ var PVaultService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "pvault.v1.PVaultService",
 	HandlerType: (*PVaultServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Authorize",
+			Handler:    _PVaultService_Authorize_Handler,
+		},
+		{
+			MethodName: "CreateUser",
+			Handler:    _PVaultService_CreateUser_Handler,
+		},
+		{
+			MethodName: "ChangePassword",
+			Handler:    _PVaultService_ChangePassword_Handler,
+		},
+		{
+			MethodName: "DeleteUser",
+			Handler:    _PVaultService_DeleteUser_Handler,
+		},
 		{
 			MethodName: "CreateVault",
 			Handler:    _PVaultService_CreateVault_Handler,

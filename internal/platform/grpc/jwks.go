@@ -1,4 +1,4 @@
-package jwks
+package grpc
 
 import (
 	"context"
@@ -13,10 +13,8 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/rs/zerolog/log"
-
 	"github.com/pdaccess/pvault/internal/core/domain"
-	"github.com/pdaccess/pvault/internal/core/ports"
+	"github.com/rs/zerolog/log"
 )
 
 type jwksKey struct {
@@ -38,7 +36,16 @@ type JWKS struct {
 	key    *rsa.PublicKey
 }
 
-func New(url string) *JWKS {
+type JWKSValidator struct {
+	jwks     *JWKS
+	keyID    string
+	alg      string
+	mu       sync.Mutex
+	err      error
+	lastLoad time.Time
+}
+
+func NewJWKS(url string) *JWKS {
 	return &JWKS{
 		client: resty.New(),
 		url:    url,
@@ -113,20 +120,11 @@ func (j *JWKS) GetKey(kid string, alg string) (*rsa.PublicKey, error) {
 	return nil, errors.New("RSA key not found in JWKS")
 }
 
-type JWKSValidator struct {
-	jwks     *JWKS
-	keyID    string
-	alg      string
-	mu       sync.Mutex
-	err      error
-	lastLoad time.Time
-}
-
 const DefaultAlg = "RS256"
 
-func NewValidator(url string, keyID string, refreshInterval time.Duration) ports.JWKSValidator {
+func NewJWKSValidator(url string, keyID string, refreshInterval time.Duration) *JWKSValidator {
 	v := &JWKSValidator{
-		jwks:  New(url),
+		jwks:  NewJWKS(url),
 		keyID: keyID,
 		alg:   DefaultAlg,
 	}

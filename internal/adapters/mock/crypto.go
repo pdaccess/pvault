@@ -6,16 +6,6 @@ import (
 	"github.com/pdaccess/pvault/internal/core/ports"
 )
 
-type mockTokenValidator struct{}
-
-func NewAllValidValidator() ports.TokenValidator {
-	return &mockTokenValidator{}
-}
-
-func (*mockTokenValidator) Validate(ctx context.Context, token string) error {
-	return nil
-}
-
 type mockCryptoService struct{}
 
 func NewCryptoService() ports.CryptoService {
@@ -41,4 +31,8 @@ func (*mockCryptoService) GetServiceMasterKey() []byte {
 func (*mockCryptoService) Encrypt(plaintext, key []byte) ([]byte, []byte, error) {
 	nonce := make([]byte, 12)
 	return plaintext, nonce, nil
+}
+
+func (*mockCryptoService) WrapForTransit(secret []byte, recipientPubKeyBytes []byte) (string, error) {
+	return string(secret), nil
 }
