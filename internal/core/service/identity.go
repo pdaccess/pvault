@@ -42,13 +42,15 @@ func (s *Impl) Authorize(ctx context.Context, provider domain.IdentityProvider, 
 }
 
 func (s *Impl) CreateUser(ctx context.Context, username, password, externalID string, provider domain.IdentityProvider, transitPubKey []byte) (string, string, error) {
-	identity, err := s.repo.GetIdentity(ctx, ports.WithUsername(username))
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "", "", fmt.Errorf("selecting user %s: %w", username, err)
-	}
+	if provider == domain.ProviderLocal {
+		identity, err := s.repo.GetIdentity(ctx, ports.WithUsername(username))
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", "", fmt.Errorf("selecting user %s: %w", username, err)
+		}
 
-	if identity != nil && err == nil {
-		return "", "", fmt.Errorf("user already exists %s", username)
+		if identity != nil && err == nil {
+			return "", "", fmt.Errorf("user already exists %s", username)
+		}
 	}
 
 	ku := make([]byte, 32)
@@ -73,7 +75,7 @@ func (s *Impl) CreateUser(ctx context.Context, username, password, externalID st
 		return "", "", fmt.Errorf("hashing password: %w", err)
 	}
 
-	identity = &domain.Identity{
+	identity := &domain.Identity{
 		InternalID:    internalID,
 		Provider:      provider,
 		ExternalID:    &externalID,
