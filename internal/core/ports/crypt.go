@@ -1,6 +1,8 @@
 package ports
 
-import "context"
+import (
+	"context"
+)
 
 type CryptoService interface {
 	// Key Wrapping Logic
@@ -13,4 +15,7 @@ type CryptoService interface {
 	// Contextual Key Retrieval
 	ExtractUserRootKey(ctx context.Context) ([]byte, error) // Pulls Ku from JWT metadata
 	GetServiceMasterKey() []byte                            // Accesses Ks (Safe/HSM/Env)
+
+	// Transit Key Wrapping (ECDH P-256)
+	WrapForTransit(secret []byte, recipientPubKeyBytes []byte) (string, error)
 }

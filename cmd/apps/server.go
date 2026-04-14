@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/pdaccess/pvault/internal/adapters/crypto"
-	"github.com/pdaccess/pvault/internal/adapters/jwks"
+	"github.com/pdaccess/pvault/internal/adapters/hasher"
 	"github.com/pdaccess/pvault/internal/adapters/mock"
 	"github.com/pdaccess/pvault/internal/adapters/pg"
 	"github.com/pdaccess/pvault/internal/core/ports"
@@ -53,10 +53,6 @@ func CreateServer(args map[string]commando.ArgValue, flags map[string]commando.F
 	logLevel := getEnvOrFlag("PV_LOG_LEVEL", "info")
 
 	jwksRefreshInterval := getEnvOrFlag("PV_JWKS_REFRESH", "5m")
-	refreshDuration, err := time.ParseDuration(jwksRefreshInterval)
-	if err != nil {
-		refreshDuration = 5 * time.Minute
-	}
 
 	logger := zerolog.New(os.Stdout).Level(zerolog.InfoLevel)
 	switch logLevel {
@@ -79,17 +75,12 @@ func CreateServer(args map[string]commando.ArgValue, flags map[string]commando.F
 		}
 	}
 
-	var tokenValidator ports.TokenValidator
 	if jwksURL != "" {
-		tokenValidator = jwks.NewValidator(jwksURL, "", refreshDuration)
 		logger.Info().Str("jwks", jwksURL).Str("refresh", jwksRefreshInterval).Msg("using JWKS token validator")
-	} else {
-		tokenValidator = mock.NewAllValidValidator()
-		logger.Warn().Msg("no JWKS URL provided, using mock validator")
 	}
 
 	server, _, err := StartServer(ctx, listenAddr, dbConnStr, tlsEnabled,
-		tlsCertFile, tlsKeyFile, jwksURL, jwtSecret, tokenValidator)
+		tlsCertFile, tlsKeyFile, jwksURL, jwtSecret)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to start server")
 		return
@@ -109,8 +100,7 @@ func CreateServer(args map[string]commando.ArgValue, flags map[string]commando.F
 }
 
 func StartServer(ctx context.Context, listenAddr, dbConnStr string, tlsEnabled bool,
-	tlsCertFile, tlsKeyFile string, jwksURL string, jwtSecret []byte,
-	tokenValidator ports.TokenValidator) (*grpcsrv.Server, ports.SecretRepository, error) {
+	tlsCertFile, tlsKeyFile string, jwksURL string, jwtSecret []byte) (*grpcsrv.Server, ports.SecretRepository, error) {
 	logger := zerolog.Ctx(ctx)
 
 	storageKey, err := getEnvStorageKey()
@@ -133,7 +123,7 @@ func StartServer(ctx context.Context, listenAddr, dbConnStr string, tlsEnabled b
 
 		logger.Info().Msg("initializing crypto service")
 		cryptoService := crypto.NewAESGCMService(storageKey)
-		vaultService, err = service.New(pgBackend, cryptoService, *logger)
+		vaultService, err = service.New(pgBackend, cryptoService, hasher.NewArgon2Hasher(), *logger)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create vault service: %w", err)
 		}
@@ -141,7 +131,7 @@ func StartServer(ctx context.Context, listenAddr, dbConnStr string, tlsEnabled b
 		logger.Info().Msg("using in-memory repository")
 		mockRepo := mock.New()
 		mockCrypto := mock.NewCryptoService()
-		svc, err := service.New(mockRepo, mockCrypto, *logger)
+		svc, err := service.New(mockRepo, mockCrypto, hasher.NewArgon2Hasher(), *logger)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create vault service: %w", err)
 		}

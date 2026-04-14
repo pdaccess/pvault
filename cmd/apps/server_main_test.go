@@ -10,7 +10,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pdaccess/pvault/cmd/apps"
-	"github.com/pdaccess/pvault/internal/adapters/mock"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	pgrpc "github.com/pdaccess/pvault/internal/platform/grpc"
 	pgrpcclient "github.com/pdaccess/pvault/pkg/api/v1"
@@ -33,13 +32,16 @@ var (
 	pg         ports.SecretRepository
 )
 
-// makeTestToken mints a signed JWT with user_uid and user_root_token claims.
-// userRootKey must be 32 bytes (AES-256).
-func makeTestToken(userID string, userRootKey []byte) string {
+// makeTestToken mints a signed JWT with user_uid, x-urk, and x-tpk claims.
+// userRootKey must be 32 bytes (AES-256). transitPubKey can be nil.
+func makeTestToken(userID string, userRootKey []byte, transitPubKey []byte) string {
 	claims := jwt.MapClaims{
-		"user_uid":        userID,
-		"user_root_token": hex.EncodeToString(userRootKey),
-		"exp":             time.Now().Add(time.Hour).Unix(),
+		"user_uid": userID,
+		"x-urk":    hex.EncodeToString(userRootKey),
+		"exp":      time.Now().Add(time.Hour).Unix(),
+	}
+	if transitPubKey != nil {
+		claims["x-tpk"] = hex.EncodeToString(transitPubKey)
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString(testJWTSecret)
@@ -52,7 +54,7 @@ func makeTestToken(userID string, userRootKey []byte) string {
 // withAuth attaches a signed JWT for the given userID to the outgoing context.
 // It uses testUserRootKey from membership_test.go as the user root key.
 func withAuth(ctx context.Context, userID string) context.Context {
-	token := makeTestToken(userID, testUserRootKey)
+	token := makeTestToken(userID, testUserRootKey, nil)
 	return metadata.NewOutgoingContext(ctx, metadata.Pairs("authorization", "Bearer "+token))
 }
 
@@ -89,7 +91,7 @@ func TestMain(m *testing.M) {
 	logger := zerolog.New(nil).Level(zerolog.ErrorLevel)
 	testCtx := logger.With().Str("component", "test").Logger().WithContext(context.Background())
 
-	server, pg, err = apps.StartServer(testCtx, "localhost:0", connectionStr, false, "", "", "", testJWTSecret, mock.NewAllValidValidator())
+	server, pg, err = apps.StartServer(testCtx, "localhost:0", connectionStr, false, "", "", "", testJWTSecret)
 	if err != nil {
 		panic("failed to start server: " + err.Error())
 	}
