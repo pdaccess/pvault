@@ -263,12 +263,20 @@ func (s *Impl) UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, 
 	return string(plaintext), val.Version, nil
 }
 
-func (s *Impl) DeleteSecret(ctx context.Context, secretID uuid.UUID) error {
+func (s *Impl) DeleteSecret(ctx context.Context, callerID, secretID uuid.UUID) error {
+	secret, err := s.repo.GetSecret(ctx, secretID, nil)
+	if err != nil {
+		return err
+	}
+
+	if secret.CreatorUserID != callerID {
+		return errors.New("only creator can delete secret")
+	}
+
 	if err := s.repo.DeleteSecret(ctx, secretID); err != nil {
 		return err
 	}
 
-	// Record audit entry for secret deletion.
 	return s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
 		CorrelationID: secretID,
@@ -286,14 +294,12 @@ func (s *Impl) UpdateSecretCapabilities(ctx context.Context, callerID, targetUse
 		return fmt.Errorf("invalid capabilities: %w", err)
 	}
 
-	// 1. Fetch latest secret to get the vault_id
 	latest, err := s.repo.GetSecret(ctx, secretID, nil)
 	if err != nil {
 		return err
 	}
 	vaultID := latest.VaultID
 
-	// 2. Verify caller is a member of the vault
 	mem, err := s.repo.GetMembership(ctx, callerID, vaultID)
 	if err != nil {
 		return err
@@ -302,7 +308,6 @@ func (s *Impl) UpdateSecretCapabilities(ctx context.Context, callerID, targetUse
 		return errors.New("not a member of this vault")
 	}
 
-	// 3. Check if caller has mngt capability on the secret
 	callerCaps, err := s.repo.GetUserSecretCapabilities(ctx, callerID, secretID)
 	if err != nil {
 		return err
@@ -311,7 +316,6 @@ func (s *Impl) UpdateSecretCapabilities(ctx context.Context, callerID, targetUse
 		return errors.New("unauthorized: mngt capability required")
 	}
 
-	// 5. Update user-specific capabilities in repository
 	if err := s.repo.SaveUserSecretCapabilities(ctx, &domain.UserSecretCapabilities{
 		UserID:       targetUserID,
 		SecretID:     secretID,
@@ -321,7 +325,6 @@ func (s *Impl) UpdateSecretCapabilities(ctx context.Context, callerID, targetUse
 		return err
 	}
 
-	// 5. Record audit entry for capability update.
 	return s.RecordAudit(ctx, &domain.AuditEntry{
 		SourceService: "pvault",
 		CorrelationID: vaultID,

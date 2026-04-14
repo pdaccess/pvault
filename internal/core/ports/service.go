@@ -24,7 +24,7 @@ type VaultService interface {
 	// Secret Operations
 	ProtectSecret(ctx context.Context, callerID, secretID, vaultID uuid.UUID, plaintext string, capabilities domain.Capabilities) error
 	UncoverSecret(ctx context.Context, callerID, secretID uuid.UUID, action domain.Capability, version *int) (string, int, error)
-	DeleteSecret(ctx context.Context, secretID uuid.UUID) error
+	DeleteSecret(ctx context.Context, callerID, secretID uuid.UUID) error
 	UpdateSecretCapabilities(ctx context.Context, callerID, targetUserID, secretID uuid.UUID, capabilities domain.Capabilities) error
 
 	// System & Audit

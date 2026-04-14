@@ -25,6 +25,19 @@ func (s *Impl) Authorize(ctx context.Context, provider domain.IdentityProvider, 
 	}
 
 	if err != nil {
+		s.RecordAudit(ctx, &domain.AuditEntry{
+			SourceService: "pvault",
+			CorrelationID: uuid.Nil,
+			EventType:     domain.EventTypeAuthorize,
+			ActorID:       uuid.Nil,
+			ActionStatus:  "failure",
+			Payload: domain.AuditPayload{
+				"provider":    string(provider),
+				"username":    username,
+				"external_id": externalID,
+				"error":       err.Error(),
+			},
+		})
 		return "", "", err
 	}
 
@@ -38,6 +51,17 @@ func (s *Impl) Authorize(ctx context.Context, provider domain.IdentityProvider, 
 		return "", "", fmt.Errorf("wrap ku: %w", err)
 	}
 
+	s.RecordAudit(ctx, &domain.AuditEntry{
+		SourceService: "pvault",
+		CorrelationID: identity.InternalID,
+		EventType:     domain.EventTypeAuthorize,
+		ActorID:       identity.InternalID,
+		ActionStatus:  "success",
+		Payload: domain.AuditPayload{
+			"provider": string(provider),
+		},
+	})
+
 	return identity.InternalID.String(), wrappedKU, nil
 }
 
@@ -49,6 +73,18 @@ func (s *Impl) CreateUser(ctx context.Context, username, password, externalID st
 		}
 
 		if identity != nil && err == nil {
+			s.RecordAudit(ctx, &domain.AuditEntry{
+				SourceService: "pvault",
+				CorrelationID: uuid.Nil,
+				EventType:     domain.EventTypeCreateUser,
+				ActorID:       uuid.Nil,
+				ActionStatus:  "failure",
+				Payload: domain.AuditPayload{
+					"provider": string(provider),
+					"username": username,
+					"error":    "user already exists",
+				},
+			})
 			return "", "", fmt.Errorf("user already exists %s", username)
 		}
 	}
@@ -76,16 +112,22 @@ func (s *Impl) CreateUser(ctx context.Context, username, password, externalID st
 	}
 
 	identity := &domain.Identity{
-		InternalID:    internalID,
-		Provider:      provider,
-		ExternalID:    &externalID,
-		LocalUsername: new(username),
-		PasswordHash:  new(passwordHash),
-		WrappedKU:     wrappedKU,
-		KUNonce:       kuNonce,
-		IsActive:      true,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		InternalID: internalID,
+		Provider:   provider,
+		ExternalID: &externalID,
+		WrappedKU:  wrappedKU,
+		KUNonce:    kuNonce,
+		IsActive:   true,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	if username != "" {
+		identity.LocalUsername = &username
+	}
+
+	if password != "" {
+		identity.PasswordHash = &passwordHash
 	}
 
 	log.Info().Str("provider", string(provider)).Str("external_id", externalID).Msg("registering identity")
@@ -98,6 +140,19 @@ func (s *Impl) CreateUser(ctx context.Context, username, password, externalID st
 	if err != nil {
 		return "", "", fmt.Errorf("wrap ku for transit: %w", err)
 	}
+
+	s.RecordAudit(ctx, &domain.AuditEntry{
+		SourceService: "pvault",
+		CorrelationID: internalID,
+		EventType:     domain.EventTypeCreateUser,
+		ActorID:       internalID,
+		ActionStatus:  "success",
+		Payload: domain.AuditPayload{
+			"provider":    string(provider),
+			"username":    username,
+			"external_id": externalID,
+		},
+	})
 
 	return internalID.String(), wrappedForTransit, nil
 }
@@ -168,7 +223,32 @@ func (s *Impl) AuthenticateExternal(ctx context.Context, provider domain.Identit
 }
 
 func (s *Impl) ChangePassword(ctx context.Context, username, oldPassword, newPassword string) error {
-	return errors.New("not implemented")
+	identity, err := s.repo.GetIdentity(ctx, ports.WithProvider(domain.ProviderLocal), ports.WithUsername(username))
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	if !identity.IsActive {
+		return errors.New("user is not active")
+	}
+
+	if identity.PasswordHash == nil {
+		return errors.New("user has no password set")
+	}
+
+	if ok, err := s.hasher.Compare(oldPassword, *identity.PasswordHash); err != nil || !ok {
+		return errors.New("invalid old password")
+	}
+
+	newHash, err := s.hasher.Hash(newPassword)
+	if err != nil {
+		return fmt.Errorf("hash new password: %w", err)
+	}
+
+	identity.PasswordHash = &newHash
+	identity.UpdatedAt = time.Now()
+
+	return s.repo.SaveIdentity(ctx, identity)
 }
 
 func (s *Impl) DeleteUser(ctx context.Context, userID uuid.UUID) error {

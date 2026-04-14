@@ -7,6 +7,18 @@ COMMIT_TXT := ${GIT_BRANCH}/${GIT_COMMIT}
 BUILD_DATE := $(shell date)
 BUILD_ENV := $(shell uname -a)
 
+GOPRIVATE := github.com/pdaccess/commons
+
+codecheck:
+	@go tool govulncheck ./...
+
+format:
+	@export $GOPRIVATE
+	@go mod tidy -e
+	@go vet ./...
+	@gofmt -s -w .
+	@go fix ./...
+	
 build:
 	go build -o bin/pvault ./cmd
 

@@ -484,3 +484,65 @@ func TestSecretCheckInCheckOut(t *testing.T) {
 		t.Fatalf("expected to see secret after check-out: %v", err)
 	}
 }
+
+func TestSecretDelete(t *testing.T) {
+	vaultID := uuid.New().String()
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
+	adminCtx := withAuth(context.Background(), secretAdminUserID)
+
+	secretID := uuid.New().String()
+	_, err := client.ProtectSecret(adminCtx, &pgrpc.ProtectSecretRequest{
+		SecretId:  secretID,
+		VaultId:   vaultID,
+		Plaintext: "secret-to-delete",
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret failed: %v", err)
+	}
+
+	delResp, err := client.DeleteSecret(adminCtx, &pgrpc.DeleteSecretRequest{
+		SecretId: secretID,
+	})
+	if err != nil {
+		t.Fatalf("DeleteSecret failed: %v", err)
+	}
+	if !delResp.Success {
+		t.Fatalf("expected delete success, got: %s", delResp.Message)
+	}
+
+	_, err = client.UncoverSecret(adminCtx, &pgrpc.UncoverSecretRequest{
+		SecretId: secretID,
+		Action:   "see",
+	})
+	if err == nil {
+		t.Fatal("expected error when uncovering deleted secret, got nil")
+	}
+}
+
+func TestSecretDeleteOnlyCreator(t *testing.T) {
+	vaultID := uuid.New().String()
+	mustCreateVault(t, vaultID, secretAdminUserID)
+
+	adminCtx := withAuth(context.Background(), secretAdminUserID)
+
+	secretID := uuid.New().String()
+	_, err := client.ProtectSecret(adminCtx, &pgrpc.ProtectSecretRequest{
+		SecretId:  secretID,
+		VaultId:   vaultID,
+		Plaintext: "secret-to-delete",
+	})
+	if err != nil {
+		t.Fatalf("ProtectSecret failed: %v", err)
+	}
+
+	otherUserID := "770e8400-e29b-41d4-a716-446655440099"
+	otherCtx := withAuth(context.Background(), otherUserID)
+
+	_, err = client.DeleteSecret(otherCtx, &pgrpc.DeleteSecretRequest{
+		SecretId: secretID,
+	})
+	if err == nil {
+		t.Fatal("expected error when non-creator tries to delete, got nil")
+	}
+}

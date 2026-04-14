@@ -27,6 +27,7 @@ service PVaultService {
   // Secret Management
   rpc ProtectSecret(ProtectSecretRequest) returns (SecretResponse);
   rpc UncoverSecret(UncoverSecretRequest) returns (UncoverSecretResponse);
+  rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
   rpc UpdateSecretCapabilities(UpdateSecretCapabilitiesRequest) returns (SecretResponse);
 
   // Audit Logging
@@ -146,6 +147,16 @@ message UncoverSecretRequest {
 message UncoverSecretResponse {
   string plaintext = 1;
   int32 version = 2;
+}
+
+message DeleteSecretRequest {
+  string secret_id = 1;
+}
+
+message DeleteSecretResponse {
+  string secret_id = 1;
+  bool success = 2;
+  string message = 3;
 }
 
 message UpdateSecretCapabilitiesRequest {

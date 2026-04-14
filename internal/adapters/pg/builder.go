@@ -135,8 +135,8 @@ func (p *PgPersistence) SaveSecret(ctx context.Context, s *domain.SecretValue) e
 func (p *PgPersistence) GetSecretValue(ctx context.Context, secretID uuid.UUID, version int) (*domain.SecretValue, error) {
 	var s SecretValue
 	err := p.db.GetContext(ctx, &s, `
-		SELECT id, vault_id, creator_user_id, ciphertext, wrapped_dek, nonce, version, updated_at
-		FROM vault.secret_values WHERE id = $1 AND version = $2`, secretID, version)
+		SELECT id, vault_id, creator_user_id, ciphertext, wrapped_dek, nonce, version, is_deleted, updated_at
+		FROM vault.secret_values WHERE id = $1 AND version = $2 AND is_deleted = FALSE`, secretID, version)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -148,6 +148,7 @@ func (p *PgPersistence) GetSecretValue(ctx context.Context, secretID uuid.UUID, 
 		WrappedDEK:    s.WrappedDEK,
 		Nonce:         s.Nonce,
 		Version:       s.Version,
+		IsDeleted:     s.IsDeleted,
 		UpdatedAt:     s.UpdatedAt,
 	}, nil
 }
@@ -166,7 +167,7 @@ func (p *PgPersistence) GetSecret(ctx context.Context, secretID uuid.UUID, versi
 func (p *PgPersistence) GetLatestSecretVersion(ctx context.Context, secretID uuid.UUID) (int, error) {
 	var version int
 	err := p.db.GetContext(ctx, &version, `
-		SELECT COALESCE(MAX(version), 0) FROM vault.secret_values WHERE id = $1`, secretID)
+		SELECT COALESCE(MAX(version), 0) FROM vault.secret_values WHERE id = $1 AND is_deleted = FALSE`, secretID)
 	if err != nil {
 		return 0, domain.ErrNotFound
 	}
@@ -175,7 +176,7 @@ func (p *PgPersistence) GetLatestSecretVersion(ctx context.Context, secretID uui
 
 func (p *PgPersistence) DeleteSecret(ctx context.Context, secretID uuid.UUID) error {
 	_, err := p.db.ExecContext(ctx, `
-		DELETE FROM vault.secret_values WHERE id = $1`, secretID)
+		UPDATE vault.secret_values SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1`, secretID)
 	if err != nil {
 		return fmt.Errorf("delete secret: %w", err)
 	}
@@ -420,6 +421,10 @@ func (p *PgPersistence) GetIdentity(ctx context.Context, opts ...ports.IdentityO
 	if q.ExternalID != nil && *q.ExternalID != "" {
 		query += fmt.Sprintf(" AND external_id = $%d", len(args)+1)
 		args = append(args, *q.ExternalID)
+	}
+	if q.Username != nil && *q.Username != "" {
+		query += fmt.Sprintf(" AND local_username = $%d", len(args)+1)
+		args = append(args, *q.Username)
 	}
 
 	query += " LIMIT 1"

@@ -23,6 +23,7 @@ type SecretValue struct {
 	WrappedDEK    []byte    `db:"wrapped_dek" json:"-"`
 	Nonce         []byte    `db:"nonce" json:"-"`
 	Version       int       `db:"version" json:"version"`
+	IsDeleted     bool      `db:"is_deleted" json:"is_deleted"`
 	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
 }
 
