@@ -2,7 +2,6 @@ package apps_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	pgrpc "github.com/pdaccess/pvault/pkg/api/v1"
@@ -111,8 +110,4 @@ func TestServerWithPostgres(t *testing.T) {
 		t.Fatal("server should have an address")
 	}
 	t.Logf("Server running on: %s", server.Address())
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && strings.Contains(s, substr)
 }

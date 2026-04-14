@@ -103,10 +103,8 @@ func TestMain(m *testing.M) {
 		panic("server address not available")
 	}
 
-	serverConn, err = grpc.Dial(serverAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")),
-		grpc.WithBlock())
+	serverConn, err = grpc.NewClient(serverAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic("failed to dial server: " + err.Error())
 	}

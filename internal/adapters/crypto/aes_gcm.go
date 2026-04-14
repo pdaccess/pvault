@@ -118,3 +118,44 @@ func (s *aesGcmService) WrapForTransit(secret []byte, recipientPubKeyBytes []byt
 
 	return hex.EncodeToString(result), nil
 }
+
+func (s *aesGcmService) UnwrapForTransit(wrappedHex string, privKey *ecdh.PrivateKey) ([]byte, error) {
+	data, err := hex.DecodeString(wrappedHex)
+	if err != nil {
+		return nil, err
+	}
+
+	pubKeyLen := 65
+	nonceSize := 12
+
+	if len(data) < pubKeyLen+nonceSize {
+		return nil, errors.New("invalid wrapped blob length")
+	}
+
+	ephemeralPubKeyBytes := data[:pubKeyLen]
+	nonce := data[pubKeyLen : pubKeyLen+nonceSize]
+	ciphertext := data[pubKeyLen+nonceSize:]
+
+	ephemeralPubKey, err := ecdh.P256().NewPublicKey(ephemeralPubKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	sharedSecret, err := privKey.ECDH(ephemeralPubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	aesKey := sha256.Sum256(sharedSecret)
+
+	block, err := aes.NewCipher(aesKey[:])
+	if err != nil {
+		return nil, err
+	}
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	return aesgcm.Open(nil, nonce, ciphertext, nil)
+}

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS vault.secret_values (
     wrapped_dek        BYTEA NOT NULL, 
     nonce              BYTEA NOT NULL, 
     version            INT NOT NULL DEFAULT 1,
+    is_deleted         BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at         TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (id, version)
 );

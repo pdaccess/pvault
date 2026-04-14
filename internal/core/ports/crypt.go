@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"crypto/ecdh"
 )
 
 type CryptoService interface {
@@ -18,4 +19,5 @@ type CryptoService interface {
 
 	// Transit Key Wrapping (ECDH P-256)
 	WrapForTransit(secret []byte, recipientPubKeyBytes []byte) (string, error)
+	UnwrapForTransit(wrappedHex string, privKey *ecdh.PrivateKey) ([]byte, error)
 }

@@ -122,7 +122,7 @@ func (s *Server) Start() error {
 	}
 
 	opts = append(opts, grpc.UnaryInterceptor(AuthInterceptor(s)))
-	// opts = append(opts, grpc.ForceServerCodec(&JSONCodec{}))
+	// JSON codec is registered but not forced - client uses CallContentSubtype
 
 	s.grpcServer = grpc.NewServer(opts...)
 
