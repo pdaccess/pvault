@@ -83,6 +83,7 @@ type SecretValue struct {
 	WrappedDEK    []byte // The DEK wrapped by Vault Key (Kv)
 	Nonce         []byte // IV for the ciphertext
 	Version       int
+	IsDeleted     bool
 	UpdatedAt     time.Time
 }
 

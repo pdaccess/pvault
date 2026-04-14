@@ -98,7 +98,16 @@ func (h *Handler) CreateUser(ctx context.Context, req *v1.CreateUserRequest) (*v
 }
 
 func (h *Handler) ChangePassword(ctx context.Context, req *v1.ChangePasswordRequest) (*v1.UserResponse, error) {
-	return &v1.UserResponse{Success: false, Message: "not implemented"}, nil
+	_, _, _, err := callerFromContext(ctx)
+	if err != nil {
+		return &v1.UserResponse{Success: false, Message: "unauthenticated"}, status.Error(codes.Unauthenticated, err.Error())
+	}
+
+	if err := h.vaultService.ChangePassword(ctx, req.Username, req.OldPassword, req.NewPassword); err != nil {
+		return &v1.UserResponse{Success: false, Message: err.Error()}, err
+	}
+
+	return &v1.UserResponse{Success: true, Message: "password changed"}, nil
 }
 
 func (h *Handler) DeleteUser(ctx context.Context, req *v1.DeleteUserRequest) (*v1.UserResponse, error) {
@@ -246,6 +255,24 @@ func (h *Handler) UncoverSecret(ctx context.Context, req *v1.UncoverSecretReques
 	}
 
 	return &v1.UncoverSecretResponse{Plaintext: plaintext, Version: int32(returnedVersion)}, nil
+}
+
+func (h *Handler) DeleteSecret(ctx context.Context, req *v1.DeleteSecretRequest) (*v1.DeleteSecretResponse, error) {
+	secretID, err := uuid.Parse(req.SecretId)
+	if err != nil {
+		return &v1.DeleteSecretResponse{Success: false, SecretId: req.SecretId, Message: "invalid secret_id"}, err
+	}
+
+	callerID, _, _, err := callerFromContext(ctx)
+	if err != nil {
+		return &v1.DeleteSecretResponse{Success: false, Message: "unauthenticated"}, status.Error(codes.Unauthenticated, err.Error())
+	}
+
+	if err := h.vaultService.DeleteSecret(ctx, callerID, secretID); err != nil {
+		return &v1.DeleteSecretResponse{Success: false, Message: err.Error()}, err
+	}
+
+	return &v1.DeleteSecretResponse{Success: true, SecretId: req.SecretId, Message: "secret deleted"}, nil
 }
 
 func (h *Handler) UpdateSecretCapabilities(ctx context.Context, req *v1.UpdateSecretCapabilitiesRequest) (*v1.SecretResponse, error) {

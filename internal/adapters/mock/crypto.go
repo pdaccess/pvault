@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"crypto/ecdh"
 
 	"github.com/pdaccess/pvault/internal/core/ports"
 )
@@ -35,4 +36,8 @@ func (*mockCryptoService) Encrypt(plaintext, key []byte) ([]byte, []byte, error)
 
 func (*mockCryptoService) WrapForTransit(secret []byte, recipientPubKeyBytes []byte) (string, error) {
 	return string(secret), nil
+}
+
+func (*mockCryptoService) UnwrapForTransit(wrappedHex string, privKey *ecdh.PrivateKey) ([]byte, error) {
+	return make([]byte, 32), nil
 }

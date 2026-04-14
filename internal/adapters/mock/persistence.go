@@ -235,6 +235,11 @@ func (m *mockDb) GetIdentity(ctx context.Context, opts ...ports.IdentityOption) 
 				continue
 			}
 		}
+		if q.Username != nil && *q.Username != "" {
+			if identity.LocalUsername == nil || *identity.LocalUsername != *q.Username {
+				continue
+			}
+		}
 		return identity, nil
 	}
 	return nil, domain.ErrNotFound

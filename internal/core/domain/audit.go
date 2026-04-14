@@ -17,6 +17,8 @@ const (
 	EventTypeUpdateSecretCapabilities EventType = "update_secret_capabilities"
 	EventTypeCheckIn                  EventType = "check_in"
 	EventTypeCheckOut                 EventType = "check_out"
+	EventTypeAuthorize                EventType = "authorize"
+	EventTypeCreateUser               EventType = "create_user"
 )
 
 type AuditPayload map[string]any
