@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -80,12 +81,12 @@ func TestMain(m *testing.M) {
 				WithStartupTimeout(10*time.Second)),
 	)
 	if err != nil {
-		panic("failed to start postgres container: " + err.Error())
+		panic(fmt.Errorf("failed to start postgres container: %w", err))
 	}
 
 	connectionStr, err := postgresContainer.ConnectionString(ctx)
 	if err != nil {
-		panic("failed to get connection string: " + err.Error())
+		panic(fmt.Errorf("failed to get connection string: %w", err))
 	}
 
 	logger := zerolog.New(nil).Level(zerolog.ErrorLevel)

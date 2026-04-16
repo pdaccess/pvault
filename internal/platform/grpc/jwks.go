@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
@@ -21,8 +23,11 @@ type jwksKey struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`
 	Alg string `json:"alg"`
+	Crv string `json:"crv"`
 	N   string `json:"n"`
 	E   string `json:"e"`
+	X   string `json:"x"`
+	Y   string `json:"y"`
 }
 
 type jwksResponse struct {
@@ -33,7 +38,7 @@ type JWKS struct {
 	client *resty.Client
 	url    string
 	mux    sync.RWMutex
-	key    *rsa.PublicKey
+	key    any
 }
 
 type JWKSValidator struct {
@@ -52,7 +57,7 @@ func NewJWKS(url string) *JWKS {
 	}
 }
 
-func (j *JWKS) GetKey(kid string, alg string) (*rsa.PublicKey, error) {
+func (j *JWKS) getKey(kid string, alg string) (any, error) {
 	resp, err := j.client.R().Get(j.url)
 	if err != nil {
 		return nil, fmt.Errorf("jwks request failed: %w", err)
@@ -67,60 +72,96 @@ func (j *JWKS) GetKey(kid string, alg string) (*rsa.PublicKey, error) {
 	}
 
 	for _, key := range keys.Keys {
-		if key.Kty != "RSA" {
-			continue
-		}
 		if kid != "" && key.Kid != kid {
 			continue
 		}
-		if alg != "" && key.Alg != alg {
+		if alg != "" && key.Alg != alg && key.Alg != "" {
 			continue
 		}
-		nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
-		if err != nil {
-			continue
-		}
-		eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
-		if err != nil {
-			continue
-		}
-		n := new(big.Int).SetBytes(nBytes)
-		e := int(new(big.Int).SetBytes(eBytes).Int64())
-		pubKey := &rsa.PublicKey{N: n, E: e}
 
-		j.mux.Lock()
-		j.key = pubKey
-		j.mux.Unlock()
-		return pubKey, nil
+		switch key.Kty {
+		case "EC":
+			return j.parseECKey(key)
+		case "RSA":
+			return j.parseRSAKey(key)
+		}
 	}
-	for _, key := range keys.Keys {
-		if key.Kty != "RSA" {
-			continue
-		}
-		if kid != "" && key.Kid != kid {
-			continue
-		}
-		nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
-		if err != nil {
-			continue
-		}
-		eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
-		if err != nil {
-			continue
-		}
-		n := new(big.Int).SetBytes(nBytes)
-		e := int(new(big.Int).SetBytes(eBytes).Int64())
-		pubKey := &rsa.PublicKey{N: n, E: e}
 
-		j.mux.Lock()
-		j.key = pubKey
-		j.mux.Unlock()
-		return pubKey, nil
-	}
-	return nil, errors.New("RSA key not found in JWKS")
+	return nil, errors.New("key not found in JWKS")
 }
 
-const DefaultAlg = "RS256"
+func (j *JWKS) parseECKey(key jwksKey) (*ecdsa.PublicKey, error) {
+	curve, ok := curveForCrv(key.Crv)
+	if !ok {
+		return nil, fmt.Errorf("unsupported curve: %s", key.Crv)
+	}
+
+	xBytes, err := base64.RawURLEncoding.DecodeString(key.X)
+	if err != nil {
+		return nil, fmt.Errorf("decode x coordinate: %w", err)
+	}
+	yBytes, err := base64.RawURLEncoding.DecodeString(key.Y)
+	if err != nil {
+		return nil, fmt.Errorf("decode y coordinate: %w", err)
+	}
+
+	pubKey := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     new(big.Int).SetBytes(xBytes),
+		Y:     new(big.Int).SetBytes(yBytes),
+	}
+
+	j.mux.Lock()
+	j.key = pubKey
+	j.mux.Unlock()
+	return pubKey, nil
+}
+
+func (j *JWKS) parseRSAKey(key jwksKey) (*rsa.PublicKey, error) {
+	nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
+	if err != nil {
+		return nil, fmt.Errorf("decode n: %w", err)
+	}
+	eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
+	if err != nil {
+		return nil, fmt.Errorf("decode e: %w", err)
+	}
+
+	pubKey := &rsa.PublicKey{
+		N: new(big.Int).SetBytes(nBytes),
+		E: int(new(big.Int).SetBytes(eBytes).Int64()),
+	}
+
+	j.mux.Lock()
+	j.key = pubKey
+	j.mux.Unlock()
+	return pubKey, nil
+}
+
+func curveForCrv(crv string) (elliptic.Curve, bool) {
+	switch crv {
+	case "P-256":
+		return elliptic.P256(), true
+	case "P-384":
+		return elliptic.P384(), true
+	case "P-521":
+		return elliptic.P521(), true
+	default:
+		return nil, false
+	}
+}
+
+func (j *JWKS) GetKey(kid string, alg string) (any, error) {
+	j.mux.RLock()
+	if j.key != nil {
+		defer j.mux.RUnlock()
+		return j.key, nil
+	}
+	j.mux.RUnlock()
+	return j.getKey(kid, alg)
+}
+
+const DefaultAlg = "ES256"
 
 func NewJWKSValidator(url string, keyID string, refreshInterval time.Duration) *JWKSValidator {
 	v := &JWKSValidator{
@@ -144,7 +185,7 @@ func NewJWKSValidator(url string, keyID string, refreshInterval time.Duration) *
 }
 
 func (v *JWKSValidator) refresh() error {
-	_, err := v.jwks.GetKey(v.keyID, v.alg)
+	_, err := v.jwks.getKey(v.keyID, v.alg)
 	if err != nil {
 		v.mu.Lock()
 		v.err = err
@@ -158,7 +199,7 @@ func (v *JWKSValidator) refresh() error {
 	return nil
 }
 
-func (v *JWKSValidator) GetKey() (*rsa.PublicKey, error) {
+func (v *JWKSValidator) GetKey() (any, error) {
 	v.mu.Lock()
 	err := v.err
 	v.mu.Unlock()
@@ -175,7 +216,16 @@ func (v *JWKSValidator) Validate(ctx context.Context, tokenString string) error 
 	}
 
 	_, err = jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		switch token.Method.(type) {
+		case *jwt.SigningMethodECDSA:
+			if _, ok := key.(*ecdsa.PublicKey); !ok {
+				return nil, fmt.Errorf("expected ECDSA key, got %T", key)
+			}
+		case *jwt.SigningMethodRSA:
+			if _, ok := key.(*rsa.PublicKey); !ok {
+				return nil, fmt.Errorf("expected RSA key, got %T", key)
+			}
+		default:
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return key, nil
@@ -197,7 +247,16 @@ func (v *JWKSValidator) Claims(tokenString string) (jwt.MapClaims, error) {
 
 	mc := jwt.MapClaims{}
 	_, err = jwt.ParseWithClaims(tokenString, &mc, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		switch token.Method.(type) {
+		case *jwt.SigningMethodECDSA:
+			if _, ok := key.(*ecdsa.PublicKey); !ok {
+				return nil, fmt.Errorf("expected ECDSA key, got %T", key)
+			}
+		case *jwt.SigningMethodRSA:
+			if _, ok := key.(*rsa.PublicKey); !ok {
+				return nil, fmt.Errorf("expected RSA key, got %T", key)
+			}
+		default:
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return key, nil
