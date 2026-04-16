@@ -10,7 +10,8 @@ BUILD_ENV := $(shell uname -a)
 GOPRIVATE := github.com/pdaccess/commons
 
 codecheck:
-	@go tool govulncheck ./...
+	@go tool  govulncheck -show verbose ./...
+	@go tool gosec ./...
 
 format:
 	@export $GOPRIVATE
