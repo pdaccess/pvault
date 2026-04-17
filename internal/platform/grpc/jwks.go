@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/golang-jwt/jwt/v5"
+	commonDomain "github.com/pdaccess/commons/pkg/domain"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/rs/zerolog/log"
 )
@@ -239,14 +240,14 @@ func (v *JWKSValidator) Validate(ctx context.Context, tokenString string) error 
 	return nil
 }
 
-func (v *JWKSValidator) Claims(tokenString string) (jwt.MapClaims, error) {
+func (v *JWKSValidator) Claims(tokenString string) (*commonDomain.PdaccessClaims, error) {
 	key, err := v.GetKey()
 	if err != nil {
 		return nil, err
 	}
 
-	mc := jwt.MapClaims{}
-	_, err = jwt.ParseWithClaims(tokenString, &mc, func(token *jwt.Token) (any, error) {
+	claims := &commonDomain.PdaccessClaims{}
+	_, err = jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		switch token.Method.(type) {
 		case *jwt.SigningMethodECDSA:
 			if _, ok := key.(*ecdsa.PublicKey); !ok {
@@ -264,7 +265,7 @@ func (v *JWKSValidator) Claims(tokenString string) (jwt.MapClaims, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mc, nil
+	return claims, nil
 }
 
 func (v *JWKSValidator) LastRefresh() time.Time {
