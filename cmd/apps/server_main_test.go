@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	commonDomain "github.com/pdaccess/commons/pkg/domain"
 	"github.com/pdaccess/pvault/cmd/apps"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	pgrpc "github.com/pdaccess/pvault/internal/platform/grpc"
@@ -36,15 +37,15 @@ var (
 // makeTestToken mints a signed JWT with user_uid, x-urk, and x-tpk claims.
 // userRootKey must be 32 bytes (AES-256). transitPubKey can be nil.
 func makeTestToken(userID string, userRootKey []byte, transitPubKey []byte) string {
-	claims := jwt.MapClaims{
-		"user_uid": userID,
-		"x-urk":    hex.EncodeToString(userRootKey),
-		"exp":      time.Now().Add(time.Hour).Unix(),
+	claims := commonDomain.PdaccessClaims{
+		UserId: userID,
+		Urk:    hex.EncodeToString(userRootKey),
+		Exp:    time.Now().Add(time.Hour).Unix(),
 	}
 	if transitPubKey != nil {
-		claims["x-tpk"] = hex.EncodeToString(transitPubKey)
+		claims.Tpk = hex.EncodeToString(transitPubKey)
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &claims)
 	signed, err := token.SignedString(testJWTSecret)
 	if err != nil {
 		panic("makeTestToken: " + err.Error())
@@ -70,8 +71,8 @@ func TestMain(m *testing.M) {
 	dbUser := "postgres"
 	dbPassword := "postgres"
 
-	postgresContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("docker.io/postgres:17-alpine"),
+	postgresContainer, err := postgres.Run(ctx,
+		"docker.io/postgres:17-alpine",
 		postgres.WithDatabase(dbName),
 		postgres.WithUsername(dbUser),
 		postgres.WithPassword(dbPassword),
