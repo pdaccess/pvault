@@ -2,12 +2,15 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	commonDomain "github.com/pdaccess/commons/pkg/domain"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -62,7 +65,7 @@ func (s *Server) parseJWTClaims(tokenStr string) (*domain.UserClaims, error) {
 }
 
 func (s *Server) parseJWTClaimsHMAC(tokenStr string) (*domain.UserClaims, error) {
-	mc := jwt.MapClaims{}
+	mc := commonDomain.PdaccessClaims{}
 	_, err := jwt.ParseWithClaims(tokenStr, &mc, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -72,44 +75,91 @@ func (s *Server) parseJWTClaimsHMAC(tokenStr string) (*domain.UserClaims, error)
 	if err != nil {
 		return nil, err
 	}
-	return extractUserClaims(mc)
+	return extractUserClaimsFromMapClaims(mc)
 }
 
 func (s *Server) parseJWTClaimsJWKS(tokenStr string) (*domain.UserClaims, error) {
-	mc, err := s.jwksValidator.Claims(tokenStr)
+	claims, err := s.jwksValidator.Claims(tokenStr)
 	if err != nil {
 		return nil, err
 	}
-	return extractUserClaims(mc)
+	return extractUserClaimsFromPdaccess(claims, tokenStr)
 }
 
-func extractUserClaims(mc jwt.MapClaims) (*domain.UserClaims, error) {
-	userIDStr, ok := mc["user_uid"].(string)
-	if !ok || userIDStr == "" {
-		userIDStr, _ = mc["sub"].(string)
+func extractUserClaimsFromPdaccess(claims *commonDomain.PdaccessClaims, tokenStr string) (*domain.UserClaims, error) {
+	if claims.UserId == "" {
+		return nil, fmt.Errorf("missing user_id claim")
 	}
-	userID, err := uuid.Parse(userIDStr)
+
+	userID, err := uuid.Parse(claims.UserId)
 	if err != nil {
-		return nil, fmt.Errorf("invalid user_uid claim: %w", err)
+		return nil, fmt.Errorf("invalid user_id claim: %w", err)
 	}
 
-	userRootTokenStr, _ := mc["x-urk"].(string)
+	user, err := extractUserClaimsFromToken(tokenStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &domain.UserClaims{
+		UserID:           userID,
+		UserRootKey:      user.UserRootKey,
+		TransitPublicKey: user.TransitPublicKey,
+	}, nil
+}
+
+func extractUserClaimsFromToken(tokenString string) (*domain.UserClaims, error) {
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid token format")
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid token payload: %w", err)
+	}
+
+	var rawClaims map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &rawClaims); err != nil {
+		return nil, fmt.Errorf("invalid token claims: %w", err)
+	}
+
 	var userRootKey []byte
-	if userRootTokenStr != "" {
-		userRootKey, err = hex.DecodeString(userRootTokenStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid x-urk claim: %w", err)
+	if urkRaw, ok := rawClaims["x-urk"]; ok {
+		var urkStr string
+		if err := json.Unmarshal(urkRaw, &urkStr); err == nil && urkStr != "" {
+			userRootKey, err = hex.DecodeString(urkStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid x-urk claim: %w", err)
+			}
 		}
 	}
 
-	transitPubKeyStr, _ := mc["x-tpk"].(string)
 	var transitPubKey []byte
-	if transitPubKeyStr != "" {
-		transitPubKey, err = hex.DecodeString(transitPubKeyStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid x-tpk claim: %w", err)
+	if tpkRaw, ok := rawClaims["x-tpk"]; ok {
+		var tpkStr string
+		if err := json.Unmarshal(tpkRaw, &tpkStr); err == nil && tpkStr != "" {
+			transitPubKey, err = hex.DecodeString(tpkStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid x-tpk claim: %w", err)
+			}
 		}
 	}
 
-	return &domain.UserClaims{UserID: userID, UserRootKey: userRootKey, TransitPublicKey: transitPubKey}, nil
+	return &domain.UserClaims{UserRootKey: userRootKey, TransitPublicKey: transitPubKey}, nil
+}
+
+func extractUserClaimsFromMapClaims(mc commonDomain.PdaccessClaims) (*domain.UserClaims, error) {
+
+	var urkBytes []byte
+	if mc.Urk != "" {
+		urkBytes, _ = hex.DecodeString(mc.Urk)
+	}
+
+	var tpkBytes []byte
+	if mc.Tpk != "" {
+		tpkBytes, _ = hex.DecodeString(mc.Tpk)
+	}
+	return &domain.UserClaims{UserID: uuid.MustParse(mc.UserId),
+		UserRootKey: urkBytes, TransitPublicKey: tpkBytes}, nil
 }

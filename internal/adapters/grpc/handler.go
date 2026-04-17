@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	commonDomain "github.com/pdaccess/commons/pkg/domain"
 	"github.com/pdaccess/pvault/internal/core/domain"
 	"github.com/pdaccess/pvault/internal/core/ports"
 	v1 "github.com/pdaccess/pvault/pkg/api/v1"
@@ -41,18 +42,13 @@ func extractTransitPubKeyFromJWT(ctx context.Context) ([]byte, error) {
 		tokenStr = tokenStr[7:]
 	}
 
-	mc := jwt.MapClaims{}
-	_, _, err := jwt.NewParser().ParseUnverified(tokenStr, mc)
+	mc := commonDomain.PdaccessClaims{}
+	_, _, err := jwt.NewParser().ParseUnverified(tokenStr, &mc)
 	if err != nil {
 		return nil, err
 	}
 
-	tpkStr, _ := mc["x-tpk"].(string)
-	if tpkStr == "" {
-		return nil, nil
-	}
-
-	return hex.DecodeString(tpkStr)
+	return hex.DecodeString(mc.Tpk)
 }
 
 func (h *Handler) Authorize(ctx context.Context, req *v1.AuthorizeRequest) (*v1.AuthorizeResponse, error) {

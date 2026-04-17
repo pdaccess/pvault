@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	commonDomain "github.com/pdaccess/commons/pkg/domain"
 )
 
 func TestParseECKeyFromJWKS(t *testing.T) {
@@ -143,10 +144,9 @@ func TestValidateECSignedToken(t *testing.T) {
 
 	validator := NewJWKSValidator(server.URL, "default", 5*time.Minute)
 
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
-		"sub":      "user123",
-		"user_uid": "user123",
-		"exp":      time.Now().Add(time.Hour).Unix(),
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, &commonDomain.PdaccessClaims{
+		UserId: "user123",
+		Exp:    time.Now().Add(time.Hour).Unix(),
 	})
 
 	tokenString, err := token.SignedString(privateKey)
@@ -164,8 +164,8 @@ func TestValidateECSignedToken(t *testing.T) {
 		t.Fatalf("Claims failed: %v", err)
 	}
 
-	if claims["sub"] != "user123" {
-		t.Errorf("expected sub=user123, got %v", claims["sub"])
+	if claims.UserId != "user123" {
+		t.Errorf("expected sub=user123, got %v", claims.UserId)
 	}
 }
 
@@ -199,9 +199,9 @@ func TestValidateExpiredToken(t *testing.T) {
 
 	validator := NewJWKSValidator(server.URL, "default", 5*time.Minute)
 
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
-		"sub": "user123",
-		"exp": time.Now().Add(-time.Hour).Unix(),
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, &commonDomain.PdaccessClaims{
+		UserId: "user123",
+		Exp:    time.Now().Add(-time.Hour).Unix(),
 	})
 
 	tokenString, err := token.SignedString(privateKey)
@@ -250,9 +250,9 @@ func TestValidateTokenWrongKey(t *testing.T) {
 
 	validator := NewJWKSValidator(server.URL, "default", 5*time.Minute)
 
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
-		"sub": "user123",
-		"exp": time.Now().Add(time.Hour).Unix(),
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, &commonDomain.PdaccessClaims{
+		UserId: "user123",
+		Exp:    time.Now().Add(time.Hour).Unix(),
 	})
 
 	tokenString, err := token.SignedString(wrongKey)
@@ -300,9 +300,9 @@ func TestValidateRSASignedToken(t *testing.T) {
 	validator := NewJWKSValidator(server.URL, "rsa-key", 5*time.Minute)
 	validator.alg = "RS256"
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"sub": "user123",
-		"exp": time.Now().Add(time.Hour).Unix(),
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, &commonDomain.PdaccessClaims{
+		UserId: "user123",
+		Exp:    time.Now().Add(time.Hour).Unix(),
 	})
 
 	tokenString, err := token.SignedString(privateKey)
@@ -320,8 +320,8 @@ func TestValidateRSASignedToken(t *testing.T) {
 		t.Fatalf("Claims failed: %v", err)
 	}
 
-	if claims["sub"] != "user123" {
-		t.Errorf("expected sub=user123, got %v", claims["sub"])
+	if claims.UserId != "user123" {
+		t.Errorf("expected sub=user123, got %v", claims.UserId)
 	}
 }
 
@@ -384,9 +384,9 @@ func TestJWKSRefresh(t *testing.T) {
 
 	validator := NewJWKSValidator(server.URL, "default", 100*time.Millisecond)
 
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
-		"sub": "user123",
-		"exp": time.Now().Add(time.Hour).Unix(),
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, &commonDomain.PdaccessClaims{
+		UserId: "user123",
+		Exp:    time.Now().Add(time.Hour).Unix(),
 	})
 	tokenString, _ := token.SignedString(privateKey)
 
