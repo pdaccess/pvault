@@ -20,7 +20,7 @@ jobs:
           go-version: '1.26.2'
 
       - name: Run unit tests
-        run: make unit-tests
+        run: DOCKER_HOST=unix:///var/run/docker.sock TESTCONTAINERS_PROVIDER_FILTER=docker make unit-tests
 
   docker:
     runs-on: ubuntu-latest

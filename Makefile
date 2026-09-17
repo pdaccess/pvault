@@ -27,10 +27,10 @@ run:
 	go run ./cmd
 
 test:
-	go test ./... -v -count=1
+	DOCKER_HOST=unix:///var/run/docker.sock TESTCONTAINERS_PROVIDER_FILTER=docker go test ./... -v -count=1
 
 unit-tests:
-	go test -cover ./...
+	DOCKER_HOST=unix:///var/run/docker.sock TESTCONTAINERS_PROVIDER_FILTER=docker go test -cover ./...
 
 generate:
 	protoc --go_out=pkg/ --go_opt=paths=source_relative \
